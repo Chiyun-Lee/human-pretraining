@@ -44,6 +44,25 @@ describe('detail regions', () => {
   })
 })
 
+describe('peripheral figures', () => {
+  const caption = block('cap', 400, { text: 'Figure 2: variants' })
+  const picture = { x0: 60, y0: 300, x1: 270, y1: 395 }
+  const pictures = new Map([['cap', picture]])
+
+  it('masks the picture together with the caption', () => {
+    const { regions } = buildRegions([group(['cap'], 'Figure 2: variants', { kind: 'detail' })], [...blocks, caption], new Set(), pictures)
+    expect(regions[0]).toMatchObject({ kind: 'detail', y0: 300, y1: 440 })
+  })
+
+  it('leaves the picture alone for a figure note, or when masking it would hide prose', () => {
+    const note = buildRegions([group(['cap'], 'Fig. 2: look here', { kind: 'figure' })], [...blocks, caption], new Set(), pictures)
+    expect(note.regions[0]).toMatchObject({ kind: 'figure', y0: 400 })
+    const overProse = new Map([['cap', { ...picture, y0: 240 }]])
+    const masked = buildRegions([group(['cap'], 'Figure 2', { kind: 'detail' })], [...blocks, caption], new Set(), overProse)
+    expect(masked.regions[0]).toMatchObject({ y0: 400 })
+  })
+})
+
 describe('buildRegions', () => {
   it('covers a paragraph, the equation inside it and the continuation with one box', () => {
     const { regions, dropped } = buildRegions([group(['a', 'eq', 'b'], 'One idea.', { caveat: ' One dataset. ' })], blocks)

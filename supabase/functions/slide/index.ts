@@ -1,10 +1,10 @@
 // Writes the one-slide summary of a paper with Claude, using the caller's
 // stored Anthropic key, together with the brief used for the page summaries.
-//   POST { name, text } -> { brief, slide }
+//   POST { name, text, figures } -> { brief, slide }
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 import { fail, withAnthropicKey } from "../_shared/anthropic.ts";
-import { makeSlide } from "./claude.ts";
+import { type FigureCaption, makeSlide } from "./claude.ts";
 
 const MAX_CHARS = 200_000;
 
@@ -17,6 +17,11 @@ export default {
     const name = typeof body?.name === "string" ? body.name.slice(0, 300) : "";
     if (text.length < 200 || text.length > MAX_CHARS) return fail(400, "invalid_request");
 
-    return withAnthropicKey(ctx, (key) => makeSlide(key, name, text));
+    const figures: FigureCaption[] = (Array.isArray(body?.figures) ? body.figures : [])
+      .filter((f: FigureCaption) => typeof f?.id === "string" && typeof f?.caption === "string")
+      .slice(0, 60)
+      .map((f: FigureCaption) => ({ id: f.id.slice(0, 40), caption: f.caption.slice(0, 400) }));
+
+    return withAnthropicKey(ctx, (key) => makeSlide(key, name, text, figures));
   }),
 };

@@ -13,6 +13,13 @@ export interface Slide {
   takeaway: string;
   flow: { kind: "question" | "approach" | "finding" | "meaning"; text: string }[];
   bullets: string[];
+  /** Candidate key figures, best first, by the ids given in the request. */
+  figures: { id: string; label: string }[];
+}
+
+export interface FigureCaption {
+  id: string;
+  caption: string;
 }
 
 const SYSTEM = `You read a whole research paper once and produce two things: a brief that later requests use to summarise the paper page by page, and a graphical abstract slide.
@@ -32,6 +39,7 @@ slide (a warm, slightly playful voice, like a hand-drawn doodle summary, for a r
 - takeaway: the one thing to remember, in one sentence (under about 20 words).
 - flow: 4 to 6 steps in order that tell the story of the paper: the question, what they did, what they found, and what it means. Give each step its kind (question, approach, finding or meaning) and at most about 10 words of text.
 - bullets: 3 to 5 key points worth remembering that the flow does not already say, each under about 15 words. The last one is the brief's most important weakness.
+- figures: up to 4 candidate figures that best capture the paper, best first, by id from the list of figure captions you are given, each with a short handwritten callout (under about 12 words) saying what to notice in it. The slide shows the first two. Prefer main figures over supplementary ones and figures over tables. Use only ids from the list; give none if the list is empty.
 
 The slide must agree with the brief. Plain text only: no markdown, no citation markers, maths in plain Unicode. State only what the text supports. If the text is not a research paper, describe what it is in the same fields as well as they fit.`;
 
@@ -52,8 +60,17 @@ const SLIDE_SCHEMA = {
       },
     },
     bullets: { type: "array", items: text },
+    figures: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: text, label: text },
+        required: ["id", "label"],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ["paper_title", "title", "takeaway", "flow", "bullets"],
+  required: ["paper_title", "title", "takeaway", "flow", "bullets", "figures"],
   additionalProperties: false,
 };
 
@@ -64,7 +81,13 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false,
 };
 
-export async function makeSlide(apiKey: string, name: string, paperText: string): Promise<{ brief: Brief; slide: Slide }> {
+export async function makeSlide(
+  apiKey: string,
+  name: string,
+  paperText: string,
+  figures: FigureCaption[],
+): Promise<{ brief: Brief; slide: Slide }> {
+  const captions = figures.length > 0 ? figures.map((f) => `${f.id}: ${f.caption}`).join("\n") : "(none)";
   const client = new Anthropic({ apiKey });
   const response = await client.beta.messages.create({
     model: "claude-opus-5-5",
@@ -74,7 +97,9 @@ export async function makeSlide(apiKey: string, name: string, paperText: string)
     fallbacks: "default",
     output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
     system: SYSTEM,
-    messages: [{ role: "user", content: `File name or title: ${name}\n\nPaper text:\n${paperText}` }],
+    messages: [
+      { role: "user", content: `File name or title: ${name}\n\nFigure captions:\n${captions}\n\nPaper text:\n${paperText}` },
+    ],
   });
 
   if (response.stop_reason === "refusal") throw new RefusedError();
@@ -82,5 +107,14 @@ export async function makeSlide(apiKey: string, name: string, paperText: string)
 
   const output = response.content.find((block) => block.type === "text")?.text ?? "";
   const { brief, slide } = JSON.parse(output) as { brief: Brief; slide: Slide };
-  return { brief, slide: { ...slide, flow: slide.flow.slice(0, 6), bullets: slide.bullets.slice(0, 5) } };
+  const known = new Set(figures.map((f) => f.id));
+  return {
+    brief,
+    slide: {
+      ...slide,
+      flow: slide.flow.slice(0, 6),
+      bullets: slide.bullets.slice(0, 5),
+      figures: slide.figures.filter((f) => known.has(f.id)).slice(0, 4),
+    },
+  };
 }

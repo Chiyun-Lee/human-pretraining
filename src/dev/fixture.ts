@@ -25,6 +25,7 @@ export const demoSlide: Slide = {
     { kind: 'finding', text: '28.4 BLEU En-De, 41.8 En-Fr: new single-model bests' },
     { kind: 'meaning', text: 'Attention alone is enough, and it parallelises' },
   ],
+  figures: [{ page: 3, x0: 190, y0: 70, x1: 420, y1: 398, label: 'Encoder on the left, decoder on the right: no recurrence anywhere' }],
   bullets: [
     'Multi-head attention lets the model attend to several positions at once.',
     'Sinusoidal position encodings stand in for the order that recurrence gave for free.',

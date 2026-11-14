@@ -1,6 +1,8 @@
 // The graphical abstract: one hand-drawn slide above the first page, laid out
 // on a fixed 1600x900 canvas and scaled to the screen.
 import { useEffect, useState } from 'react'
+import { cropFigure } from '../pdf/figureScan'
+import type { PdfDocument } from '../pdf/pdfjs'
 import type { FlowKind, Slide } from '../summaries/slide'
 import { HAND_FONT, handFontReady } from './handFont'
 
@@ -47,7 +49,43 @@ function Lines({ x, y, lines, size, opacity, underline }: { x: number; y: number
   )
 }
 
-export function SlideCard({ slide, paperTitle }: { slide: Slide; paperTitle: string }) {
+interface Props {
+  slide: Slide
+  paperTitle: string
+  /** The open paper, from which the slide's figures are cut. */
+  doc: PdfDocument
+}
+
+interface Picture {
+  url: string
+  width: number
+  height: number
+  label: string
+}
+
+const FIGURES_WIDTH = 840
+
+export function SlideCard({ slide, paperTitle, doc }: Props) {
+  const [pictures, setPictures] = useState<Picture[]>([])
+  useEffect(() => {
+    let current = true
+    void (async () => {
+      const made: Picture[] = []
+      for (const figure of slide.figures ?? []) {
+        try {
+          const url = await cropFigure(doc, figure.page, figure)
+          made.push({ url, width: figure.x1 - figure.x0, height: figure.y1 - figure.y0, label: figure.label })
+        } catch (error) {
+          console.error(error) // the slide is still useful without this figure
+        }
+      }
+      if (current) setPictures(made)
+    })()
+    return () => {
+      current = false
+    }
+  }, [doc, slide.figures])
+
   // Text is wrapped by measuring it, so wait for the font.
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -74,15 +112,41 @@ export function SlideCard({ slide, paperTitle }: { slide: Slide; paperTitle: str
   const flowY = y
   y += boxH + 44
 
-  const pointsY = y
+  // Figures on the left, key points on the right (full width when there are no figures).
+  const top = y
   const bottom = H - PAD
+  const areaH = bottom - top
+  const figuresW = pictures.length ? FIGURES_WIDTH : 0
+  // Two figures go side by side or stacked, whichever shows them bigger.
+  const shown = (slotW: number, slotH: number) =>
+    pictures.reduce((sum, p) => sum + Math.min(slotW / p.width, (slotH - 70) / p.height) ** 2 * p.width * p.height, 0)
+  const sideBySide = pictures.length === 2 && shown((figuresW - 20) / 2, areaH) > shown(figuresW, (areaH - 20) / 2)
+  const slots = pictures.map((picture, i) => {
+    const slotW = sideBySide ? (figuresW - 20) / 2 : figuresW
+    const slotH = sideBySide ? areaH : (areaH - 20 * (pictures.length - 1)) / pictures.length
+    const label = wrap(picture.label, slotW - 24, 20).slice(0, 3)
+    return {
+      picture,
+      label,
+      x: sideBySide ? PAD + i * (slotW + 20) : PAD,
+      y: sideBySide ? top : top + i * (slotH + 20),
+      w: slotW,
+      h: slotH,
+      imageH: slotH - 14 - label.length * 26,
+    }
+  })
+
+  const pointsX = pictures.length ? PAD + figuresW + 50 : PAD
+  const pointsW = W - PAD - pointsX
+  const pointSize = pictures.length ? 22 : 27
+  const pointsY = top + (pictures.length ? 24 : 0)
   const bullets: { y: number; lines: string[] }[] = []
-  let bulletY = y + 50
+  let bulletY = pointsY + 50
   for (const bullet of slide.bullets) {
-    const lines = wrap(bullet, inner - 34, 27)
-    if (bulletY + (lines.length - 1) * 35 > bottom) break
+    const lines = wrap(bullet, pointsW - 34, pointSize)
+    if (bulletY + (lines.length - 1) * pointSize * 1.3 > bottom) break
     bullets.push({ y: bulletY, lines })
-    bulletY += lines.length * 35 + 16
+    bulletY += lines.length * pointSize * 1.3 + 16
   }
 
   return (
@@ -117,11 +181,26 @@ export function SlideCard({ slide, paperTitle }: { slide: Slide; paperTitle: str
           )
         })}
 
-        <Lines x={PAD} y={pointsY} lines={['KEY POINTS']} size={26} underline />
+        {slots.map((slot, i) => (
+          <g key={i}>
+            <rect x={slot.x} y={slot.y} width={slot.w} height={slot.h} rx={12} fill="#fff" stroke={INK} strokeWidth={1.5} strokeDasharray="6 5" />
+            <image
+              href={slot.picture.url}
+              x={slot.x + 8}
+              y={slot.y + 8}
+              width={slot.w - 16}
+              height={slot.imageH - 8}
+              preserveAspectRatio="xMidYMid meet"
+            />
+            <Lines x={slot.x + 12} y={slot.y + slot.imageH + 22} lines={slot.label} size={20} />
+          </g>
+        ))}
+
+        <Lines x={pointsX} y={pointsY} lines={['KEY POINTS']} size={26} underline />
         {bullets.map((bullet, i) => (
           <g key={i}>
-            <circle cx={PAD + 8} cy={bullet.y - 8} r={5} fill={INK} />
-            <Lines x={PAD + 30} y={bullet.y} lines={bullet.lines} size={27} />
+            <circle cx={pointsX + 8} cy={bullet.y - pointSize * 0.3} r={pictures.length ? 4 : 5} fill={INK} />
+            <Lines x={pointsX + 30} y={bullet.y} lines={bullet.lines} size={pointSize} />
           </g>
         ))}
         <Lines x={PAD} y={H - 18} lines={wrap(paperTitle, inner, 14).slice(0, 1)} size={14} opacity={0.5} />

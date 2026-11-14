@@ -56,6 +56,8 @@ export function buildRegions(
   groups: SummaryGroup[],
   blocks: PageBlock[],
   used = new Set<string>(),
+  /** Where each figure's picture is, by the id of its caption block. */
+  pictures = new Map<string, Box>(),
 ): { regions: Region[]; dropped: number } {
   const byId = new Map(blocks.map((block) => [block.id, block]))
   const regions: Region[] = []
@@ -98,6 +100,25 @@ export function buildRegions(
     }
 
     members.forEach((m) => used.add(m.id))
+
+    // A peripheral figure is masked whole: its picture along with its caption.
+    if (kind === 'detail') {
+      for (const piece of boxes) {
+        const picture = piece.part.map((m) => pictures.get(m.id)).find(Boolean)
+        if (!picture) continue
+        const whole = {
+          x0: Math.min(piece.box.x0, picture.x0),
+          y0: Math.min(piece.box.y0, picture.y0),
+          x1: Math.max(piece.box.x1, picture.x1),
+          y1: Math.max(piece.box.y1, picture.y1),
+        }
+        const hidesProse = blocks.some(
+          (b) => b.page === piece.part[0]!.page && b.kind === 'paragraph' && !ids.has(b.id) && intersects(whole, b),
+        )
+        if (!hidesProse) piece.box = whole
+      }
+    }
+
     for (const piece of boxes) {
       const isMain = piece === main
       const before = boxes.indexOf(piece) < boxes.indexOf(main)

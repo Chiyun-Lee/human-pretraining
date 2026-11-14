@@ -1,4 +1,6 @@
 import { supabase } from '../lib/supabase'
+import { findFigures } from '../pdf/figureScan'
+import type { Box } from '../pdf/figures'
 import type { PdfDocument } from '../pdf/pdfjs'
 import { invokeClaude } from './invoke'
 import { readPageBlocks } from './summarise'
@@ -14,6 +16,14 @@ export interface Slide {
   takeaway: string
   flow: { kind: FlowKind; text: string }[]
   bullets: string[]
+  /** Up to two key figures, cut from the PDF when the slide is drawn. */
+  figures?: SlideFigure[]
+}
+
+export interface SlideFigure extends Box {
+  page: number
+  /** A short handwritten callout: what to notice. */
+  label: string
 }
 
 /** An independent reading of the whole paper that every page's summaries are written against. */
@@ -42,7 +52,22 @@ export async function readPaper(doc: PdfDocument, paperId: string, name: string)
     text += blocks.filter((b) => b.kind === 'paragraph').map((b) => b.text).join('\n\n') + '\n\n'
   }
 
-  const result = await invokeClaude<{ brief: Brief; slide: Slide }>('slide', { name, text: text.slice(0, MAX_CHARS) })
+  // Claude ranks the figures by their captions; the slide shows the first two whose picture was found.
+  const found = (await findFigures(doc)).filter((figure) => figure.box)
+  const figures = found.map((figure) => ({ id: figure.id, caption: figure.caption.slice(0, 400) }))
+
+  const reply = await invokeClaude<{ brief: Brief; slide: Slide & { figures: { id: string; label: string }[] } }>('slide', {
+    name,
+    text: text.slice(0, MAX_CHARS),
+    figures,
+  })
+  const picked: SlideFigure[] = []
+  for (const choice of reply.slide.figures ?? []) {
+    const figure = found.find((candidate) => candidate.id === choice.id)
+    if (figure?.box && picked.length < 2) picked.push({ page: figure.page, ...figure.box, label: choice.label })
+  }
+  const result = { brief: reply.brief, slide: { ...reply.slide, figures: picked } }
+
   const title = result.slide.paper_title.trim()
   const { error } = await supabase.from('papers').update({ ...result, ...(title && { title }) }).eq('id', paperId)
   if (error) console.error(error) // still usable for this session; it is written again next time

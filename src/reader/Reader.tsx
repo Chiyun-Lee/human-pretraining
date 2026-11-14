@@ -213,7 +213,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
 
       {open && (
         <main className="pages">
-          {slide && <SlideCard slide={slide} paperTitle={slide.paper_title || name} />}
+          {slide && <SlideCard slide={slide} paperTitle={slide.paper_title || name} doc={open.doc} />}
           {Array.from({ length: open.doc.numPages }, (_, i) => (
             <PdfPageView
               key={i + 1}

@@ -2,6 +2,8 @@
 // them to Claude in small batches, and saves the resulting regions.
 import { supabase } from '../lib/supabase'
 import { detectBlocks } from '../pdf/blocks'
+import { findFigures } from '../pdf/figureScan'
+import type { Box } from '../pdf/figures'
 import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from './invoke'
 import { type Brief, isBrief, isSlide, type Slide } from './slide'
@@ -76,6 +78,8 @@ export async function summarisePaper(
   onRegions: (pages: number[], regions: Region[]) => void,
 ): Promise<void> {
   const done = new Set(donePages)
+  const pictures = new Map<string, Box>()
+  for (const figure of await findFigures(doc)) if (figure.box) pictures.set(figure.captionBlockId, figure.box)
   const batches: Batch[] = []
   let current: Batch = { pages: [], blocks: [] }
   let currentChars = 0
@@ -100,14 +104,14 @@ export async function summarisePaper(
   const runBatch = async (batch: Batch) => {
     const used = new Set<string>()
     const groups = batch.blocks.length > 0 ? await requestGroups(brief, batch.blocks) : []
-    const first = buildRegions(groups, batch.blocks, used)
+    const first = buildRegions(groups, batch.blocks, used, pictures)
     const regions = first.regions
 
     // One more request for any paragraphs that were skipped or whose group could not be drawn.
     const missed = uncovered(batch.blocks, used)
     if (missed.length > 0) {
       const retry = await requestGroups(brief, batch.blocks, missed.map((block) => block.id))
-      const second = buildRegions(retry, batch.blocks, used)
+      const second = buildRegions(retry, batch.blocks, used, pictures)
       regions.push(...second.regions)
       const left = uncovered(batch.blocks, used).length
       if (left > 0) console.info(`Pages ${batch.pages.join(', ')}: ${left} paragraph(s) left as original text`)

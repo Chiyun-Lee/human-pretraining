@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { detectBlocks, type Block } from '../pdf/blocks'
+import { type Figure, findFigures } from '../pdf/figureScan'
 import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
 import type { Region } from '../summaries/regions'
 import { BlockOverlay } from './BlockOverlay'
@@ -33,6 +34,7 @@ export function PdfPageView({ doc, pageNumber, defaultAspect, regions, summarise
   const [near, setNear] = useState(false)
   const [cssWidth, setCssWidth] = useState(0)
   const [layout, setLayout] = useState<PageLayout | null>(null)
+  const [figures, setFigures] = useState<Figure[]>([])
 
   // Only pages near the viewport are rendered.
   useEffect(() => {
@@ -48,6 +50,16 @@ export function PdfPageView({ doc, pageNumber, defaultAspect, regions, summarise
       size.disconnect()
     }
   }, [])
+
+  // Debug view only: where figures were found.
+  useEffect(() => {
+    if (!showBlocks) return
+    let cancelled = false
+    void findFigures(doc).then((all) => !cancelled && setFigures(all.filter((figure) => figure.page === pageNumber)))
+    return () => {
+      cancelled = true
+    }
+  }, [doc, pageNumber, showBlocks])
 
   // Text layout is computed once per page and kept.
   useEffect(() => {
@@ -128,6 +140,24 @@ export function PdfPageView({ doc, pageNumber, defaultAspect, regions, summarise
             }}
           />
         ))}
+      {near &&
+        showBlocks &&
+        layout &&
+        figures.map(
+          (figure) =>
+            figure.box && (
+              <div
+                key={figure.id}
+                className="block block-outline block-figure-outline"
+                style={{
+                  left: `${(figure.box.x0 / layout.width) * 100}%`,
+                  top: `${(figure.box.y0 / layout.height) * 100}%`,
+                  width: `${((figure.box.x1 - figure.box.x0) / layout.width) * 100}%`,
+                  height: `${((figure.box.y1 - figure.box.y0) / layout.height) * 100}%`,
+                }}
+              />
+            ),
+        )}
     </div>
   )
 }
