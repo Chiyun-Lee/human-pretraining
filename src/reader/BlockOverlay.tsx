@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react'
 import type { Region } from '../summaries/regions'
+import { setShowOriginal } from '../summaries/summarise'
 import { useFitText } from './useFitText'
 
 interface Props {
   region: Region
   pageWidth: number
   pageHeight: number
-  /** What the reader-wide switch says; the region's own switch overrides it. */
+  /** The reader-wide switch: false shows every original. */
   summariseByDefault: boolean
 }
 
@@ -14,8 +15,16 @@ interface Props {
 const PAD = 3
 
 export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault }: Props) {
-  const [override, setOverride] = useState<boolean | null>(null)
-  const summarised = override ?? summariseByDefault
+  // The note's own switch is remembered across devices; while the reader-wide
+  // switch shows originals, a note can still be peeked at without changing that.
+  const [flipped, setFlipped] = useState(region.show_original ?? false)
+  const [peek, setPeek] = useState(false)
+  const summarised = summariseByDefault ? !flipped : peek
+  const toggle = () => {
+    if (!summariseByDefault) return setPeek(!peek)
+    setFlipped(!flipped)
+    if (region.id) void setShowOriginal(region.id, !flipped)
+  }
   const detail = region.kind === 'detail'
   const textRef = useRef<HTMLUListElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
@@ -65,7 +74,7 @@ export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault
         aria-pressed={summarised}
         aria-label={summarised ? 'Show original text' : 'Show summary'}
         title={summarised ? 'Show original text' : 'Show summary'}
-        onClick={() => setOverride(!summarised)}
+        onClick={toggle}
       />
     </div>
   )

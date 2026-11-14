@@ -43,3 +43,18 @@ export async function pageTextBoxes(page: PdfPage): Promise<TextBox[]> {
   }
   return boxes
 }
+
+/**
+ * Fills `container` with the page's text as invisible, selectable spans that
+ * sit exactly over the rendered page. It scales with the CSS variable
+ * --total-scale-factor (CSS pixels per page unit) set on an ancestor.
+ */
+export async function renderTextLayer(page: PdfPage, container: HTMLElement): Promise<void> {
+  container.replaceChildren()
+  const layer = new pdfjs.TextLayer({
+    textContentSource: await page.getTextContent(),
+    container,
+    viewport: page.getViewport({ scale: 1 }),
+  })
+  await layer.render()
+}

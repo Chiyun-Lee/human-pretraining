@@ -159,6 +159,12 @@ body {
 .block-original {
   outline: 1px dashed rgb(31 47 122 / 25%);
   border-radius: 6px;
+  /* Let the original text underneath be selected and highlighted. */
+  pointer-events: none;
+}
+
+.block-original .block-switch {
+  pointer-events: auto;
 }
 
 .block-outline {
@@ -437,4 +443,111 @@ body {
 
 .menu-items .danger {
   color: #b42318;
+}
+
+/* The page's text as invisible, selectable spans (filled in by PDF.js). */
+.textLayer {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  -webkit-text-size-adjust: none;
+  transform-origin: 0 0;
+}
+
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer ::selection {
+  background: rgb(31 47 122 / 25%);
+}
+
+.highlight {
+  position: absolute;
+  padding: 0;
+  background: rgb(255 214 10 / 40%);
+  border: 0;
+  border-radius: 2px;
+  mix-blend-mode: multiply;
+  cursor: pointer;
+}
+
+.highlight.has-note {
+  border-bottom: 2px solid #b7791f;
+}
+
+.selection-bar {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  overflow: hidden;
+  background: var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(16 24 40 / 25%);
+}
+
+.selection-bar button {
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: #fff;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.selection-bar button + button {
+  border-left: 1px solid rgb(255 255 255 / 30%);
+}
+
+.popover {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid #d0d4da;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgb(16 24 40 / 20%);
+}
+
+.popover-quote {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: #57606a;
+}
+
+.popover textarea {
+  resize: vertical;
 }

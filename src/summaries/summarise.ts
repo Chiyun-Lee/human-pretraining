@@ -16,10 +16,12 @@ export interface PaperSummaries {
   brief: Brief | null
 }
 
+const REGION_COLUMNS = 'id, show_original, page, x0, y0, x1, y1, kind, bullets, caveat'
+
 export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
   const [paper, regions] = await Promise.all([
     supabase.from('papers').select('summarised_pages, slide, brief').eq('id', paperId).single(),
-    supabase.from('regions').select('page, x0, y0, x1, y1, kind, bullets, caveat').eq('paper_id', paperId),
+    supabase.from('regions').select(REGION_COLUMNS).eq('paper_id', paperId),
   ])
   if (paper.error) throw paper.error
   if (regions.error) throw regions.error
@@ -122,8 +124,10 @@ export async function summarisePaper(
       p_regions: regions,
     })
     if (error) throw new ClaudeError('Summaries could not be saved. Check your connection.')
-    // false means another device saved these pages first; its version is loaded on next open.
-    if (saved) onRegions(batch.pages, regions)
+    // Read back what is stored (with ids). If another device saved these pages first, this is its version.
+    void saved
+    const stored = await supabase.from('regions').select(REGION_COLUMNS).eq('paper_id', paperId).in('page', batch.pages)
+    onRegions(batch.pages, stored.error ? regions : (stored.data as Region[]))
   }
 
   // A few batches at a time; the first failure stops the rest from starting.
@@ -143,4 +147,10 @@ export async function summarisePaper(
   if (failure) {
     throw failure.reason instanceof ClaudeError ? failure.reason : new ClaudeError('Summarising failed. Try again.')
   }
+}
+
+/** Remembers that a note is flipped to the original text (or back). */
+export async function setShowOriginal(regionId: string, showOriginal: boolean): Promise<void> {
+  const { error } = await supabase.from('regions').update({ show_original: showOriginal }).eq('id', regionId)
+  if (error) console.error(error)
 }

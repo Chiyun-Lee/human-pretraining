@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react'
+import {
+  addAnnotation,
+  type Annotation,
+  currentSelection,
+  deleteAnnotation,
+  listAnnotations,
+  type PageSelection,
+  setAnnotationNote,
+} from '../annotations/annotations'
 import { openPdf, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError } from '../summaries/invoke'
 import type { Region } from '../summaries/regions'
 import { readPaper, type Slide } from '../summaries/slide'
 import { fetchSummaries, resetSummaries, summarisePaper } from '../summaries/summarise'
+import { NotePopover } from './NotePopover'
 import { PdfPageView } from './PdfPageView'
 import { SlideCard } from './SlideCard'
 
@@ -44,6 +54,65 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const [progress, setProgress] = useState<Progress | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [confirmRedo, setConfirmRedo] = useState(false)
+  const [annotations, setAnnotations] = useState<Annotation[]>([])
+  const [selection, setSelection] = useState<PageSelection | null>(null)
+  /** The note editor: for an existing highlight, or for a selection about to become one. */
+  const [editing, setEditing] = useState<
+    { anchor: { x: number; y: number }; annotation: Annotation } | { anchor: { x: number; y: number }; selection: PageSelection } | null
+  >(null)
+
+  // The reader's own highlights and notes.
+  useEffect(() => {
+    if (!paperId) return
+    let cancelled = false
+    listAnnotations(paperId).then(
+      (loaded) => !cancelled && setAnnotations(loaded),
+      (error) => console.error(error),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [paperId])
+
+  // Offer to highlight whatever text is selected on a page.
+  useEffect(() => {
+    if (!paperId) return
+    const update = () => setSelection(currentSelection())
+    document.addEventListener('selectionchange', update)
+    return () => document.removeEventListener('selectionchange', update)
+  }, [paperId])
+
+  const report = (error: unknown) => {
+    console.error(error)
+    alert('That could not be saved. Check your connection.')
+  }
+  const highlight = async (picked: PageSelection, note: string | null) => {
+    if (!paperId) return
+    try {
+      const { page, rects, quote } = picked
+      const saved = await addAnnotation(paperId, { page, rects, quote, note })
+      setAnnotations((current) => [...current, saved])
+      document.getSelection()?.removeAllRanges()
+    } catch (error) {
+      report(error)
+    }
+  }
+  const saveNote = async (annotation: Annotation, note: string) => {
+    try {
+      await setAnnotationNote(annotation.id, note || null)
+      setAnnotations((current) => current.map((a) => (a.id === annotation.id ? { ...a, note: note || null } : a)))
+    } catch (error) {
+      report(error)
+    }
+  }
+  const removeAnnotation = async (annotation: Annotation) => {
+    try {
+      await deleteAnnotation(annotation.id)
+      setAnnotations((current) => current.filter((a) => a.id !== annotation.id))
+    } catch (error) {
+      report(error)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -221,12 +290,63 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
               pageNumber={i + 1}
               defaultAspect={open.aspect}
               regions={regions.filter((region) => region.page === i + 1)}
+              annotations={annotations.filter((annotation) => annotation.page === i + 1)}
+              onPickAnnotation={(annotation, anchor) => setEditing({ anchor, annotation })}
               summarise={summarise}
               showBlocks={showBlocks}
               resetKey={resetKey}
             />
           ))}
         </main>
+      )}
+
+      {selection && !editing && (
+        <div
+          className="selection-bar"
+          style={{
+            left: Math.max(8, Math.min(selection.anchor.x - 80, window.innerWidth - 176)),
+            top: Math.min(selection.anchor.y + 8, window.innerHeight - 48),
+          }}
+          // Keep the text selected while a button is pressed.
+          onPointerDown={(event) => event.preventDefault()}
+        >
+          <button type="button" onClick={() => void highlight(selection, null)}>
+            Highlight
+          </button>
+          <button type="button" onClick={() => setEditing({ anchor: selection.anchor, selection })}>
+            Add note
+          </button>
+        </div>
+      )}
+
+      {editing && 'annotation' in editing && (
+        <NotePopover
+          key={editing.annotation.id}
+          anchor={editing.anchor}
+          quote={editing.annotation.quote}
+          note={editing.annotation.note ?? ''}
+          onSave={(note) => {
+            void saveNote(editing.annotation, note)
+            setEditing(null)
+          }}
+          onDelete={() => {
+            void removeAnnotation(editing.annotation)
+            setEditing(null)
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      {editing && 'selection' in editing && (
+        <NotePopover
+          anchor={editing.anchor}
+          quote={editing.selection.quote}
+          note=""
+          onSave={(note) => {
+            void highlight(editing.selection, note || null)
+            setEditing(null)
+          }}
+          onClose={() => setEditing(null)}
+        />
       )}
     </>
   )

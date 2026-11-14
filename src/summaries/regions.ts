@@ -6,6 +6,10 @@ import type { Block } from '../pdf/blocks'
 export type RegionKind = 'summary' | 'figure' | 'detail'
 
 export interface Region {
+  /** Set once the region is saved. */
+  id?: string
+  /** The reader has flipped this note back to the original text. */
+  show_original?: boolean
   page: number
   x0: number
   y0: number

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { detectBlocks, type Block } from '../pdf/blocks'
 import { type Figure, findFigures } from '../pdf/figureScan'
-import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
+import type { Annotation } from '../annotations/annotations'
+import { pageTextBoxes, renderTextLayer, type PdfDocument } from '../pdf/pdfjs'
 import type { Region } from '../summaries/regions'
 import { BlockOverlay } from './BlockOverlay'
 
@@ -12,6 +13,10 @@ interface Props {
   defaultAspect: number
   /** AI summaries for this page. */
   regions: Region[]
+  /** The reader's highlights on this page. */
+  annotations: Annotation[]
+  /** A highlight was clicked, at this screen position. */
+  onPickAnnotation: (annotation: Annotation, anchor: { x: number; y: number }) => void
   summarise: boolean
   /** Debug view: outline every detected text block. */
   showBlocks: boolean
@@ -28,9 +33,20 @@ interface PageLayout {
 // Keeps canvases within mobile browser memory limits.
 const MAX_CANVAS_PIXELS = 8_000_000
 
-export function PdfPageView({ doc, pageNumber, defaultAspect, regions, summarise, showBlocks, resetKey }: Props) {
+export function PdfPageView({
+  doc,
+  pageNumber,
+  defaultAspect,
+  regions,
+  annotations,
+  onPickAnnotation,
+  summarise,
+  showBlocks,
+  resetKey,
+}: Props) {
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasHolderRef = useRef<HTMLDivElement>(null)
+  const textLayerRef = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
   const [cssWidth, setCssWidth] = useState(0)
   const [layout, setLayout] = useState<PageLayout | null>(null)
@@ -50,6 +66,22 @@ export function PdfPageView({ doc, pageNumber, defaultAspect, regions, summarise
       size.disconnect()
     }
   }, [])
+
+  // Invisible, selectable text over the page, so the reader can highlight it.
+  useEffect(() => {
+    const container = textLayerRef.current!
+    if (!near) {
+      container.replaceChildren()
+      return
+    }
+    let cancelled = false
+    void doc.getPage(pageNumber).then((page) => {
+      if (!cancelled) void renderTextLayer(page, container)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [doc, pageNumber, near])
 
   // Debug view only: where figures were found.
   useEffect(() => {
@@ -113,8 +145,39 @@ export function PdfPageView({ doc, pageNumber, defaultAspect, regions, summarise
   const aspect = layout ? layout.width / layout.height : defaultAspect
 
   return (
-    <div ref={frameRef} className="page" style={{ aspectRatio: String(aspect) }} data-page={pageNumber}>
+    <div
+      ref={frameRef}
+      className="page"
+      data-page={pageNumber}
+      data-page-width={layout?.width}
+      style={{
+        aspectRatio: String(aspect),
+        // CSS pixels per page unit: sizes the text layer.
+        ['--total-scale-factor' as string]: layout && cssWidth ? cssWidth / layout.width : 1,
+      }}
+    >
       <div ref={canvasHolderRef} className="page-canvas" />
+      <div ref={textLayerRef} className="textLayer" />
+      {near &&
+        layout &&
+        annotations.flatMap((annotation) =>
+          annotation.rects.map((rect, i) => (
+            <button
+              key={`${annotation.id}-${i}`}
+              type="button"
+              className={annotation.note ? 'highlight has-note' : 'highlight'}
+              aria-label={annotation.note ? `Note: ${annotation.note}` : 'Highlight'}
+              title={annotation.note ?? undefined}
+              style={{
+                left: `${(rect.x0 / layout.width) * 100}%`,
+                top: `${(rect.y0 / layout.height) * 100}%`,
+                width: `${((rect.x1 - rect.x0) / layout.width) * 100}%`,
+                height: `${((rect.y1 - rect.y0) / layout.height) * 100}%`,
+              }}
+              onClick={(event) => onPickAnnotation(annotation, { x: event.clientX, y: event.clientY })}
+            />
+          )),
+        )}
       {near &&
         layout &&
         regions.map((region, i) => (
