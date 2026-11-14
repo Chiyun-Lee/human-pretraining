@@ -1,0 +1,9 @@
+node_modules
+dist
+.DS_Store
+*.local
+.env*.local
+# copied from node_modules/pdfjs-dist by scripts/sync-pdfjs.mjs
+public/pdfjs
+# local test papers, not redistributed
+public/samples

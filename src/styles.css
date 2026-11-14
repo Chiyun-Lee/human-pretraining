@@ -1,0 +1,436 @@
+@font-face {
+  font-family: 'xkcd'; /* xkcd-script, CC BY-NC 3.0; see public/fonts/README.txt */
+  src: url('/fonts/xkcd-script.woff') format('woff');
+  font-display: swap;
+}
+
+:root {
+  --accent: #1f2f7a;
+  --hand: 'xkcd', 'Comic Sans MS', cursive; /* only for what is drawn on the paper */
+  --ink: #1b1f24;
+  --paper: #fff;
+  --desk: #e9ebee;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--desk);
+}
+
+.app {
+  min-height: 100dvh;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: var(--paper);
+  border-bottom: 1px solid #d0d4da;
+}
+
+.title {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.button {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid #c3c8cf;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.button[aria-pressed='true'] {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.notice {
+  margin: 12px 16px;
+  font-size: 14px;
+  color: #57606a;
+  text-align: center;
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 0 24px;
+}
+
+.page {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  /* Lets overlay controls scale with the page (cqw units). */
+  container-type: inline-size;
+  background: var(--paper);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+}
+
+.page-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.block {
+  /* Width of the toggle's knob track, scaled with the page. */
+  --switch: clamp(9px, 2cqw, 14px);
+  position: absolute;
+}
+
+.block-summary {
+  /* The original text stays faintly visible, blurred, behind the handwritten note. */
+  background: rgb(255 255 255 / 82%);
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+  border-radius: 6px;
+  color: var(--accent);
+  font-family: var(--hand);
+}
+
+.block-text .block-caveat {
+  color: #b5590a;
+  list-style-type: '⚠ ';
+}
+
+/* Detail the reader can skip: blurred harder and only labelled, so the argument stands out. */
+.block-detail {
+  overflow: hidden;
+  background: rgb(250 250 248 / 70%);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.block-label {
+  /* Sized by useFitText so it never spills out of a small mask. */
+  --fit-max: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 calc(var(--switch) * 1.85 + 1.2cqw) 0 2px;
+  overflow: hidden;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* A note about a figure: a scribbled callout over the caption, leaving the figure in view. */
+.block-figure {
+  z-index: 2;
+  border: 1.5px dashed var(--accent);
+  transform: rotate(-0.4deg);
+}
+
+.block-figure .block-text {
+  height: auto;
+  font-size: clamp(7px, 1.5cqw, 13px);
+}
+
+.block-original {
+  outline: 1px dashed rgb(31 47 122 / 25%);
+  border-radius: 6px;
+}
+
+.block-outline {
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+
+.block-other {
+  border: 1px dotted #d1242f;
+}
+
+.block-text {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  /* Right padding leaves room for the switch. */
+  padding: 0.3em calc(var(--switch) * 1.85 + 1.2cqw) 0.3em 1.4em;
+  line-height: 1.2;
+  overflow: hidden;
+}
+
+.block-text li + li {
+  margin-top: 0.2em;
+}
+
+/* The switch: a small toggle in each note's top-right corner, sized with the page. */
+.block-switch {
+  position: absolute;
+  top: 0.5cqw;
+  right: 0.5cqw;
+  width: calc(var(--switch) * 1.85);
+  height: var(--switch);
+  padding: 0;
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--switch);
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.block-switch::after {
+  position: absolute;
+  top: 15%;
+  left: 52%;
+  width: calc(var(--switch) * 0.7);
+  height: 70%;
+  content: '';
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.15s;
+}
+
+.block-original .block-switch {
+  background: #b9bdcc;
+}
+
+.block-original .block-switch::after {
+  left: 8%;
+}
+
+.block-switch:hover,
+.block-switch:focus-visible {
+  opacity: 1;
+}
+
+.button.primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.button:disabled,
+.button.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 440px;
+  margin: 10vh auto 0;
+  padding: 24px;
+  background: var(--paper);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+}
+
+.card h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.card p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.input {
+  padding: 8px 10px;
+  font: inherit;
+  border: 1px solid #c3c8cf;
+  border-radius: 6px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.error {
+  margin: 0;
+  color: #b3261e;
+  font-size: 14px;
+}
+
+.library {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 720px;
+  min-height: 60vh;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.paper-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paper-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.paper {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid #d0d4da;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.paper-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paper-date {
+  font-size: 13px;
+  color: #57606a;
+}
+
+.progress {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.progress-track {
+  flex: 1 1 160px;
+  height: 6px;
+  overflow: hidden;
+  background: #dfe3e8;
+  border-radius: 3px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #57606a;
+}
+
+.add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.add-row .input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.slide {
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+}
+
+.slide svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.slide text {
+  font-family: var(--hand);
+  fill: var(--accent);
+}
+
+.menu {
+  position: relative;
+}
+
+.menu summary {
+  list-style: none;
+}
+
+.menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.menu-items {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--paper);
+  border: 1px solid #d0d4da;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(16 24 40 / 12%);
+}
+
+.menu-items button {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.menu-items button:hover {
+  background: #eef0f8;
+}
+
+.menu-items .danger {
+  color: #b42318;
+}
