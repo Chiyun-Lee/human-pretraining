@@ -24,6 +24,7 @@ async function readPdf(response: Response): Promise<Uint8Array | null> {
 export interface Found {
   pdf: Uint8Array | null;
   title: string | null;
+  doi: string | null;
   /** Whether the address answered at all. */
   reached: boolean;
 }
@@ -63,21 +64,21 @@ export async function findPdf(url: URL): Promise<Found> {
   const page = await attempt(readPage(url));
   const pdf = direct ?? page?.pdf ?? null;
   let title = page?.title ?? null;
-  if (pdf) return { pdf, title, reached: true };
-
   const doi = page?.doi ?? doiFromUrl(url);
+  if (pdf) return { pdf, title, doi, reached: true };
+
   if (doi) {
     const alreadyAtDoi = url.hostname === "doi.org";
     const viaPublisher = alreadyAtDoi ? null : await attempt(readPage(new URL(`https://doi.org/${doi}`)));
     title ??= viaPublisher?.title ?? null;
-    if (viaPublisher?.pdf) return { pdf: viaPublisher.pdf, title, reached: true };
+    if (viaPublisher?.pdf) return { pdf: viaPublisher.pdf, title, doi, reached: true };
 
     const found = await attempt(lookUpDoi(doi));
     title ??= found?.title?.replace(/\.$/, "") ?? null;
     const viaPmc = found?.pmcId ? await attempt(pmcPdf(found.pmcId)) : null;
-    if (viaPmc) return { pdf: viaPmc, title, reached: true };
+    if (viaPmc) return { pdf: viaPmc, title, doi, reached: true };
   }
-  return { pdf: null, title, reached: page !== null || doi !== null };
+  return { pdf: null, title, doi, reached: page !== null || doi !== null };
 }
 
 interface Page {

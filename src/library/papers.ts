@@ -1,5 +1,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import type { PaperMeta } from './bibliography'
 
 const BUCKET = 'papers'
 
@@ -8,12 +9,16 @@ export interface Paper {
   title: string
   file_path: string
   created_at: string
+  doi: string | null
+  meta: PaperMeta | null
 }
+
+const COLUMNS = 'id, title, file_path, created_at, doi, meta'
 
 export async function listPapers(): Promise<Paper[]> {
   const { data, error } = await supabase
     .from('papers')
-    .select('id, title, file_path, created_at')
+    .select(COLUMNS)
     .order('created_at', { ascending: false })
   if (error) throw error
   return data
@@ -28,7 +33,7 @@ export async function addPaper(userId: string, file: File): Promise<Paper> {
   const { data, error } = await supabase
     .from('papers')
     .insert({ id, title: file.name.replace(/\.pdf$/i, ''), file_path: path })
-    .select('id, title, file_path, created_at')
+    .select(COLUMNS)
     .single()
   if (error) {
     await supabase.storage.from(BUCKET).remove([path])

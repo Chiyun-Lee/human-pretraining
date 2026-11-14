@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { fetchCrossref, type PaperMeta, type Reference } from '../library/bibliography'
 import { findFigures } from '../pdf/figureScan'
 import type { Box } from '../pdf/figures'
 import type { PdfDocument } from '../pdf/pdfjs'
@@ -44,11 +45,51 @@ export const isSlide = (value: unknown): value is Slide =>
 
 const MAX_CHARS = 150_000
 
-/** Has Claude read the whole paper: writes the brief and the slide, and saves both with the paper's real title. */
-export async function readPaper(doc: PdfDocument, paperId: string, name: string): Promise<{ brief: Brief; slide: Slide }> {
+interface PrintedMeta {
+  doi: string
+  authors: string[]
+  year: string
+  venue: string
+}
+
+export interface Bibliography {
+  doi: string | null
+  meta: PaperMeta | null
+  refs: Reference[] | null
+}
+
+/**
+ * Looks the paper up in Crossref by DOI for its authors, venue and reference
+ * list, and saves them. `printed` is what the paper itself says, used when
+ * Crossref does not know the DOI.
+ */
+export async function saveBibliography(paperId: string, doi: string | null, printed?: PrintedMeta): Promise<Bibliography> {
+  const record = doi ? await fetchCrossref(doi).catch(() => null) : null
+  const fallback: PaperMeta | null =
+    printed && printed.authors.length > 0
+      ? { authors: printed.authors, year: Number.parseInt(printed.year, 10) || null, venue: printed.venue || null }
+      : null
+  const bibliography = { doi, meta: record?.meta ?? fallback, refs: record?.refs ?? null }
+  const { error } = await supabase.from('papers').update(bibliography).eq('id', paperId)
+  if (error) console.error(error)
+  return bibliography
+}
+
+/**
+ * Has Claude read the whole paper: writes the brief and the slide, and saves
+ * both with the paper's real title and bibliographic details.
+ */
+export async function readPaper(
+  doc: PdfDocument,
+  paperId: string,
+  name: string,
+  knownDoi: string | null,
+): Promise<{ brief: Brief; slide: Slide; bibliography: Bibliography }> {
   let text = ''
+  let front = ''
   for (let pageNumber = 1; pageNumber <= doc.numPages && text.length < MAX_CHARS; pageNumber++) {
     const blocks = await readPageBlocks(doc, pageNumber)
+    if (pageNumber === 1) front = blocks.map((b) => b.text).join('\n').slice(0, 4000)
     text += blocks.filter((b) => b.kind === 'paragraph').map((b) => b.text).join('\n\n') + '\n\n'
   }
 
@@ -56,11 +97,11 @@ export async function readPaper(doc: PdfDocument, paperId: string, name: string)
   const found = (await findFigures(doc)).filter((figure) => figure.box)
   const figures = found.map((figure) => ({ id: figure.id, caption: figure.caption.slice(0, 400) }))
 
-  const reply = await invokeClaude<{ brief: Brief; slide: Slide & { figures: { id: string; label: string }[] } }>('slide', {
-    name,
-    text: text.slice(0, MAX_CHARS),
-    figures,
-  })
+  const reply = await invokeClaude<{
+    meta: PrintedMeta
+    brief: Brief
+    slide: Slide & { figures: { id: string; label: string }[] }
+  }>('slide', { name, text: text.slice(0, MAX_CHARS), figures, front })
   const picked: SlideFigure[] = []
   for (const choice of reply.slide.figures ?? []) {
     const figure = found.find((candidate) => candidate.id === choice.id)
@@ -71,5 +112,8 @@ export async function readPaper(doc: PdfDocument, paperId: string, name: string)
   const title = result.slide.paper_title.trim()
   const { error } = await supabase.from('papers').update({ ...result, ...(title && { title }) }).eq('id', paperId)
   if (error) console.error(error) // still usable for this session; it is written again next time
-  return result
+
+  const printedDoi = reply.meta.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').trim()
+  const bibliography = await saveBibliography(paperId, knownDoi ?? (/^10\.\d{4,9}\/\S+$/.test(printedDoi) ? printedDoi : null), reply.meta)
+  return { ...result, bibliography }
 }

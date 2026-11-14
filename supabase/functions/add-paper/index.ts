@@ -37,7 +37,7 @@ export default {
     }
     const { data: paper, error } = await ctx.supabase
       .from("papers")
-      .insert({ id, title: title.slice(0, 300), file_path: path, source_url: url.href })
+      .insert({ id, title: title.slice(0, 300), file_path: path, source_url: url.href, doi: found.doi })
       .select("id, title, file_path, created_at")
       .single();
     if (error) {

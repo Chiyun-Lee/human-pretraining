@@ -11,10 +11,11 @@ import {
 import { openPdf, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError } from '../summaries/invoke'
 import type { Region } from '../summaries/regions'
-import { readPaper, type Slide } from '../summaries/slide'
+import { type Bibliography, readPaper, saveBibliography, type Slide } from '../summaries/slide'
 import { fetchSummaries, resetSummaries, summarisePaper } from '../summaries/summarise'
 import { NotePopover } from './NotePopover'
 import { PdfPageView } from './PdfPageView'
+import { ReferencesPanel } from './ReferencesPanel'
 import { SlideCard } from './SlideCard'
 
 interface Props {
@@ -54,6 +55,8 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const [progress, setProgress] = useState<Progress | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [confirmRedo, setConfirmRedo] = useState(false)
+  const [bibliography, setBibliography] = useState<Bibliography | null>(null)
+  const [showRefs, setShowRefs] = useState(false)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selection, setSelection] = useState<PageSelection | null>(null)
   /** The note editor: for an existing highlight, or for a selection about to become one. */
@@ -159,6 +162,11 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
       if (cancelled) return
       setRegions(saved.regions)
       setSlide(saved.slide)
+      setBibliography(saved.bibliography)
+      // A paper whose DOI is known but whose references were never looked up (no Claude call needed).
+      if (saved.bibliography.doi && !saved.bibliography.refs) {
+        void saveBibliography(paperId, saved.bibliography.doi).then((found) => !cancelled && setBibliography(found))
+      }
       done = saved.summarisedPages.length
       const complete = done >= total && saved.slide !== null
       setProgress({ done, total, working: !complete && !!hasKey })
@@ -169,9 +177,12 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
         // Claude reads the whole paper first; every page is then summarised against that one brief.
         let brief = saved.brief
         if (!brief || !saved.slide) {
-          const read = await readPaper(doc, paperId, name)
+          const read = await readPaper(doc, paperId, name, saved.bibliography.doi)
           brief = read.brief
-          if (!cancelled) setSlide(read.slide)
+          if (!cancelled) {
+            setSlide(read.slide)
+            setBibliography(read.bibliography)
+          }
         }
         await summarisePaper(doc, paperId, brief, saved.summarisedPages, (pages, added) => {
           if (cancelled) return
@@ -234,6 +245,11 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
                 <button type="button" aria-pressed={showBlocks} onClick={() => setShowBlocks(!showBlocks)}>
                   {showBlocks ? 'Hide text outlines' : 'Show text outlines'}
                 </button>
+                {bibliography?.refs && bibliography.refs.length > 0 && (
+                  <button type="button" onClick={() => setShowRefs(true)}>
+                    References ({bibliography.refs.length})
+                  </button>
+                )}
                 {canRedo &&
                   (confirmRedo ? (
                     <button type="button" className="danger" onClick={() => void redo()}>
@@ -299,6 +315,8 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
           ))}
         </main>
       )}
+
+      {showRefs && bibliography?.refs && <ReferencesPanel refs={bibliography.refs} onClose={() => setShowRefs(false)} />}
 
       {selection && !editing && (
         <div

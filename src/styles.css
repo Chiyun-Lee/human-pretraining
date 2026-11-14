@@ -551,3 +551,63 @@ body {
 .popover textarea {
   resize: vertical;
 }
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100vw);
+  background: var(--paper);
+  border-left: 1px solid #d0d4da;
+  box-shadow: -6px 0 24px rgb(16 24 40 / 15%);
+}
+
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  padding-top: max(10px, env(safe-area-inset-top));
+  border-bottom: 1px solid #d0d4da;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.panel ol {
+  flex: 1;
+  margin: 0;
+  padding: 12px 14px 24px 36px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.panel li {
+  margin-bottom: 12px;
+}
+
+.panel li > span {
+  display: block;
+}
+
+.panel .row {
+  align-items: center;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.panel .row .button {
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+.muted {
+  color: #57606a;
+}

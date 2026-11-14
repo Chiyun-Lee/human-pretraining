@@ -17,14 +17,28 @@ export interface Slide {
   figures: { id: string; label: string }[];
 }
 
+/** Bibliographic details as printed on the paper. */
+export interface PrintedMeta {
+  doi: string;
+  authors: string[];
+  year: string;
+  venue: string;
+}
+
 export interface FigureCaption {
   id: string;
   caption: string;
 }
 
-const SYSTEM = `You read a whole research paper once and produce two things: a brief that later requests use to summarise the paper page by page, and a graphical abstract slide.
+const SYSTEM = `You read a whole research paper once and produce three things: its bibliographic details, a brief that later requests use to summarise the paper page by page, and a graphical abstract slide.
 
 Read as an independent reviewer, not as the authors' publicist. Separate what the paper shows from what it asserts, and judge the claims by the evidence actually presented.
+
+meta (copied from the front matter you are given; use an empty string or list for anything not printed there, and never guess):
+- doi: the paper's own DOI, without any "https://doi.org/" prefix.
+- authors: every author's full name, in order.
+- year: the publication year.
+- venue: the journal, conference or preprint server.
 
 brief:
 - claims: the 2 to 5 claims the paper stands or falls on, each one sentence with its headline number.
@@ -74,10 +88,17 @@ const SLIDE_SCHEMA = {
   additionalProperties: false,
 };
 
+const META_SCHEMA = {
+  type: "object",
+  properties: { doi: text, authors: { type: "array", items: text }, year: text, venue: text },
+  required: ["doi", "authors", "year", "venue"],
+  additionalProperties: false,
+};
+
 const OUTPUT_SCHEMA = {
   type: "object",
-  properties: { brief: BRIEF_SCHEMA, slide: SLIDE_SCHEMA },
-  required: ["brief", "slide"],
+  properties: { meta: META_SCHEMA, brief: BRIEF_SCHEMA, slide: SLIDE_SCHEMA },
+  required: ["meta", "brief", "slide"],
   additionalProperties: false,
 };
 
@@ -86,7 +107,8 @@ export async function makeSlide(
   name: string,
   paperText: string,
   figures: FigureCaption[],
-): Promise<{ brief: Brief; slide: Slide }> {
+  front: string,
+): Promise<{ meta: PrintedMeta; brief: Brief; slide: Slide }> {
   const captions = figures.length > 0 ? figures.map((f) => `${f.id}: ${f.caption}`).join("\n") : "(none)";
   const client = new Anthropic({ apiKey });
   const response = await client.beta.messages.create({
@@ -98,7 +120,7 @@ export async function makeSlide(
     output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
     system: SYSTEM,
     messages: [
-      { role: "user", content: `File name or title: ${name}\n\nFigure captions:\n${captions}\n\nPaper text:\n${paperText}` },
+      { role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nFigure captions:\n${captions}\n\nPaper text:\n${paperText}` },
     ],
   });
 
@@ -106,9 +128,10 @@ export async function makeSlide(
   if (response.stop_reason === "max_tokens") throw new Error("slide response was cut off");
 
   const output = response.content.find((block) => block.type === "text")?.text ?? "";
-  const { brief, slide } = JSON.parse(output) as { brief: Brief; slide: Slide };
+  const { meta, brief, slide } = JSON.parse(output) as { meta: PrintedMeta; brief: Brief; slide: Slide };
   const known = new Set(figures.map((f) => f.id));
   return {
+    meta,
     brief,
     slide: {
       ...slide,

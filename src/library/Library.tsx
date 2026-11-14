@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { byline, toBibtex } from './bibliography'
 import { addPaper, addPaperFromLink, deletePaper, listPapers, type Paper } from './papers'
 
 interface Props {
@@ -58,6 +59,15 @@ export function Library({ userId, onOpen }: Props) {
     }
   }
 
+  const exportBibtex = () => {
+    const file = new Blob([toBibtex(papers ?? [])], { type: 'application/x-bibtex' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(file)
+    link.download = 'library.bib'
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
   const remove = async (paper: Paper) => {
     if (!confirm(`Remove “${paper.title}” from your library?`)) return
     try {
@@ -96,6 +106,11 @@ export function Library({ userId, onOpen }: Props) {
           Add PDF
           <input type="file" accept="application/pdf" hidden disabled={busy} onChange={(event) => void add(event.target.files?.[0])} />
         </label>
+        {papers && papers.length > 0 && (
+          <button type="button" className="button" onClick={exportBibtex}>
+            Export BibTeX
+          </button>
+        )}
       </form>
       {error && <p className="error">{error}</p>}
       {papers === null && !error && <p className="notice">Loading…</p>}
@@ -105,7 +120,7 @@ export function Library({ userId, onOpen }: Props) {
           <li key={paper.id}>
             <button type="button" className="paper" onClick={() => onOpen(paper)}>
               <span className="paper-title">{paper.title}</span>
-              <span className="paper-date">{new Date(paper.created_at).toLocaleDateString()}</span>
+              <span className="paper-date">{byline(paper.meta) || `Added ${new Date(paper.created_at).toLocaleDateString()}`}</span>
             </button>
             <button type="button" className="button" aria-label={`Remove ${paper.title}`} onClick={() => void remove(paper)}>
               Remove

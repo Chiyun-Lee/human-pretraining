@@ -6,7 +6,8 @@ import { findFigures } from '../pdf/figureScan'
 import type { Box } from '../pdf/figures'
 import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from './invoke'
-import { type Brief, isBrief, isSlide, type Slide } from './slide'
+import type { PaperMeta, Reference } from '../library/bibliography'
+import { type Bibliography, type Brief, isBrief, isSlide, type Slide } from './slide'
 import { buildRegions, type PageBlock, type Region, type SummaryGroup, uncovered } from './regions'
 
 export interface PaperSummaries {
@@ -14,13 +15,14 @@ export interface PaperSummaries {
   regions: Region[]
   slide: Slide | null
   brief: Brief | null
+  bibliography: Bibliography
 }
 
 const REGION_COLUMNS = 'id, show_original, page, x0, y0, x1, y1, kind, bullets, caveat'
 
 export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
   const [paper, regions] = await Promise.all([
-    supabase.from('papers').select('summarised_pages, slide, brief').eq('id', paperId).single(),
+    supabase.from('papers').select('summarised_pages, slide, brief, doi, meta, refs').eq('id', paperId).single(),
     supabase.from('regions').select(REGION_COLUMNS).eq('paper_id', paperId),
   ])
   if (paper.error) throw paper.error
@@ -30,6 +32,11 @@ export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
     regions: regions.data as Region[],
     slide: isSlide(paper.data.slide) ? paper.data.slide : null,
     brief: isBrief(paper.data.brief) ? paper.data.brief : null,
+    bibliography: {
+      doi: paper.data.doi as string | null,
+      meta: paper.data.meta as PaperMeta | null,
+      refs: paper.data.refs as Reference[] | null,
+    },
   }
 }
 
