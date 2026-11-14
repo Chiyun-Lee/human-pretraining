@@ -9,9 +9,16 @@ export interface Annotation {
   rects: Box[]
   quote: string
   note: string | null
+  /** Questions asked about the highlighted text, with Claude's answers. */
+  thread: Turn[]
 }
 
-const COLUMNS = 'id, page, rects, quote, note'
+export interface Turn {
+  role: 'user' | 'claude'
+  text: string
+}
+
+const COLUMNS = 'id, page, rects, quote, note, thread'
 
 export async function listAnnotations(paperId: string): Promise<Annotation[]> {
   const { data, error } = await supabase.from('annotations').select(COLUMNS).eq('paper_id', paperId).order('created_at')
@@ -31,6 +38,11 @@ export async function addAnnotation(paperId: string, annotation: Omit<Annotation
 
 export async function setAnnotationNote(id: string, note: string | null): Promise<void> {
   const { error } = await supabase.from('annotations').update({ note, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw error
+}
+
+export async function setAnnotationThread(id: string, thread: Turn[]): Promise<void> {
+  const { error } = await supabase.from('annotations').update({ thread, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) throw error
 }
 

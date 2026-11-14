@@ -46,3 +46,14 @@ export function briefAsText(brief: Brief): string {
     `What matters and what is detail:\n${brief.focus}`,
   ].join("\n\n");
 }
+
+const strings = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === "string");
+
+/** A brief sent back by the app, checked before it goes into a prompt. */
+export function readBrief(value: unknown): Brief | null {
+  const brief = value as Brief | null;
+  if (!brief || !strings(brief.claims) || !strings(brief.evidence) || !strings(brief.weaknesses)) return null;
+  if (typeof brief.focus !== "string" || !Array.isArray(brief.terms)) return null;
+  if (!brief.terms.every((t) => typeof t?.term === "string" && typeof t?.meaning === "string")) return null;
+  return JSON.stringify(brief).length <= 20_000 ? brief : null;
+}

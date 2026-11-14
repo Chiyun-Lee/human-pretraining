@@ -161,3 +161,9 @@ export async function setShowOriginal(regionId: string, showOriginal: boolean): 
   const { error } = await supabase.from('regions').update({ show_original: showOriginal }).eq('id', regionId)
   if (error) console.error(error)
 }
+
+/** Saves the reader's own wording of a note. */
+export async function saveRegionText(regionId: string, bullets: string[], caveat: string | null): Promise<void> {
+  const { error } = await supabase.from('regions').update({ bullets, caveat, edited: true }).eq('id', regionId)
+  if (error) throw error
+}

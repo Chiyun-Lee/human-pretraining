@@ -33,3 +33,19 @@ export const demoSlide: Slide = {
     'Tested only on text; long inputs may need restricted attention.',
   ],
 }
+
+const unseen = { due: '2026-01-01T00:00:00Z', stability: 0, difficulty: 0, reps: 0, lapses: 0, last_review: null, last_response: null }
+export const demoCards: import('../learning/cards').Card[] = [
+  {
+    ...unseen, id: 'c1', paper_id: 'p', kind: 'recall', page: 2, points: [], correct: 1,
+    prompt: 'In the Transformer translation model, what replaces recurrence for relating positions in a sequence?',
+    options: ['Convolutions over fixed windows', 'Self-attention between all positions', 'A larger LSTM hidden state', 'A learned alignment table'],
+    answer: 'Self-attention: every position attends directly to every other, so distance no longer matters and training parallelises.',
+  },
+  {
+    ...unseen, id: 'c2', paper_id: 'p', kind: 'explain', page: 6, options: [], correct: 0,
+    prompt: 'Why can a Transformer be trained faster than an RNN translation model of similar quality?',
+    answer: 'It has no step-by-step recurrence, so all positions in a sequence are processed in parallel.',
+    points: ['No sequential dependence between positions', 'Whole sequence computed in parallel on GPUs'],
+  },
+]

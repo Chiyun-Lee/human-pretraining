@@ -450,3 +450,13 @@ import_map = "./functions/add-paper/deno.json"
 enabled = true
 verify_jwt = false
 import_map = "./functions/slide/deno.json"
+
+[functions.ask]
+enabled = true
+verify_jwt = false
+import_map = "./functions/ask/deno.json"
+
+[functions.quiz]
+enabled = true
+verify_jwt = false
+import_map = "./functions/quiz/deno.json"

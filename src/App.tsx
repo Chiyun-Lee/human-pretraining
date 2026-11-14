@@ -4,6 +4,8 @@ import { useSession } from './auth/useSession'
 import { supabase } from './lib/supabase'
 import { Library } from './library/Library'
 import { downloadPaper, type Paper } from './library/papers'
+import { Quiz } from './learning/Quiz'
+import { NotePopover } from './reader/NotePopover'
 import { Reader } from './reader/Reader'
 import { fetchKeyStatus, type KeyStatus } from './settings/anthropicKey'
 import { KeySetup } from './settings/KeySetup'
@@ -17,6 +19,20 @@ const devFile = devParams?.get('file')
 const demo = devParams?.has('demo') ? await import('./dev/fixture') : null
 
 export function App() {
+  if (demo && devParams?.has('quiz')) {
+    const thread = [
+      { role: 'user' as const, text: 'Explain this simply' },
+      { role: 'claude' as const, text: 'Each word looks at every other word at once and decides which ones matter for it, instead of reading the sentence one word at a time.' },
+    ]
+    return (
+      <>
+        <Quiz title="Quiz" cards={demo.demoCards} inline={devParams.has('inline')} predict={devParams.has('inline')} onClose={() => {}} />
+        {devParams.has('popover') && (
+          <NotePopover anchor={{ x: 500, y: 300 }} quote="self-attention relates all positions" note="" thread={thread} focus="ask" asking={false} onAsk={() => {}} onSave={() => {}} onDelete={() => {}} onClose={() => {}} />
+        )}
+      </>
+    )
+  }
   if (devFile) {
     return (
       <Reader

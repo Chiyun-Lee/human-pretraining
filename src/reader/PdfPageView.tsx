@@ -165,9 +165,9 @@ export function PdfPageView({
             <button
               key={`${annotation.id}-${i}`}
               type="button"
-              className={annotation.note ? 'highlight has-note' : 'highlight'}
-              aria-label={annotation.note ? `Note: ${annotation.note}` : 'Highlight'}
-              title={annotation.note ?? undefined}
+              className={annotation.note || annotation.thread.length > 0 ? 'highlight has-note' : 'highlight'}
+              aria-label={annotation.note ? `Note: ${annotation.note}` : annotation.thread.length > 0 ? 'Highlight with questions' : 'Highlight'}
+              title={annotation.note ?? annotation.thread[0]?.text}
               style={{
                 left: `${(rect.x0 / layout.width) * 100}%`,
                 top: `${(rect.y0 / layout.height) * 100}%`,
