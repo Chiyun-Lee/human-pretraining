@@ -76,35 +76,44 @@ export function mergeLineRects(rects: Box[]): Box[] {
 
 export interface PageSelection {
   page: number
+  /** Empty when the selection is in a summary note rather than the page's own text. */
   rects: Box[]
   quote: string
   /** Where on screen the selection ends, for placing the toolbar. */
   anchor: { x: number; y: number }
+  /** A point of the page (in page units) inside the selection, for finding the note it belongs to. */
+  at: { x: number; y: number }
   area?: boolean
 }
 
-/** The current text selection, if it lies in a page's text, in that page's units. */
+/** The current text selection, if it lies in a page's text or in a summary note, in that page's units. */
 export function currentSelection(): PageSelection | null {
   const selection = document.getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
   const range = selection.getRangeAt(0)
   const start = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement
   const frame = start?.closest<HTMLElement>('.page')
-  const quote = selection.toString().replace(/\s+/g, ' ').trim()
-  if (!frame || !start?.closest('.textLayer') || !quote) return null
+  const quote = selection.toString().replace(/\s+/g, ' ').trim().slice(0, 2000)
+  const note = start?.closest<HTMLElement>('.block-summary')
+  if (!frame || !(note || start?.closest('.textLayer')) || !quote) return null
 
   const bounds = frame.getBoundingClientRect()
   const scale = Number(frame.dataset.pageWidth) / bounds.width
+  const page = Number(frame.dataset.page)
+  const toPage = (r: DOMRect): Box => ({
+    x0: (r.left - bounds.left) * scale,
+    y0: (r.top - bounds.top) * scale,
+    x1: (r.right - bounds.left) * scale,
+    y1: (r.bottom - bounds.top) * scale,
+  })
+  const centre = (box: Box) => ({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 })
   const inPage = [...range.getClientRects()].filter((r) => r.bottom > bounds.top && r.top < bounds.bottom)
-  const rects = mergeLineRects(
-    inPage.map((r) => ({
-      x0: (r.left - bounds.left) * scale,
-      y0: (r.top - bounds.top) * scale,
-      x1: (r.right - bounds.left) * scale,
-      y1: (r.bottom - bounds.top) * scale,
-    })),
-  )
   const last = inPage[inPage.length - 1]
-  if (rects.length === 0 || !last) return null
-  return { page: Number(frame.dataset.page), rects, quote: quote.slice(0, 2000), anchor: { x: last.right, y: last.bottom } }
+  if (!last) return null
+  const anchor = { x: last.right, y: last.bottom }
+
+  if (note) return { page, rects: [], quote, anchor, at: centre(toPage(note.getBoundingClientRect())) }
+  const rects = mergeLineRects(inPage.map(toPage))
+  if (rects.length === 0) return null
+  return { page, rects, quote, anchor, at: centre(rects[0]!) }
 }

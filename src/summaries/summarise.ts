@@ -8,7 +8,7 @@ import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from './invoke'
 import type { PaperMeta, Reference } from '../library/bibliography'
 import { type Bibliography, type Brief, isBrief, isSlide, type Slide } from './slide'
-import { buildRegions, type PageBlock, type Region, type SummaryGroup, uncovered } from './regions'
+import { buildRegions, type PageBlock, type Region, type Source, type SummaryGroup, uncovered } from './regions'
 
 export interface PaperSummaries {
   summarisedPages: number[]
@@ -162,8 +162,19 @@ export async function setShowOriginal(regionId: string, showOriginal: boolean): 
   if (error) console.error(error)
 }
 
-/** Saves the reader's own wording of a note. */
-export async function saveRegionText(regionId: string, bullets: string[], caveat: string | null): Promise<void> {
-  const { error } = await supabase.from('regions').update({ bullets, caveat, edited: true }).eq('id', regionId)
+/** Saves new wording for a note, with the source sentences that still apply. */
+export async function saveRegionText(regionId: string, bullets: string[], caveat: string | null, sources: Source[] | null): Promise<void> {
+  const { error } = await supabase.from('regions').update({ bullets, caveat, sources, edited: true }).eq('id', regionId)
   if (error) throw error
+}
+
+/** The prose of the whole paper, with a [page N] marker before each page. */
+export async function paperText(doc: PdfDocument, maxChars = 180_000): Promise<string> {
+  let text = ''
+  for (let pageNumber = 1; pageNumber <= doc.numPages && text.length < maxChars; pageNumber++) {
+    const blocks = await readPageBlocks(doc, pageNumber)
+    const prose = blocks.filter((block) => block.kind === 'paragraph').map((block) => block.text)
+    text += `[page ${pageNumber}]\n${prose.join('\n\n')}\n\n`
+  }
+  return text.slice(0, maxChars)
 }

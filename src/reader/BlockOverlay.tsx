@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { Box } from '../pdf/figures'
 import type { Facet, Region } from '../summaries/regions'
-import { saveRegionText, setShowOriginal } from '../summaries/summarise'
+import { setShowOriginal } from '../summaries/summarise'
 import { splitTerms, type Term } from './marks'
 import { useFitText } from './useFitText'
 
@@ -18,20 +18,23 @@ interface Props {
   /** The paper's defined terms, underlined in the note. */
   terms: Term[]
   onTerm: (term: Term, anchor: { x: number; y: number }) => void
+  /** The reader rewrote the note. */
+  onEdit: (bullets: string[], caveat: string | null) => void
+  /** Claude is being asked about this note. */
+  asking: boolean
 }
 
 // Page units of padding so the cover fully hides the text underneath.
 const PAD = 3
 
-export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault, sourceRects, facets, terms, onTerm }: Props) {
+export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault, sourceRects, facets, terms, onTerm, onEdit, asking }: Props) {
   // The note's own switch is remembered across devices; while the reader-wide
   // switch shows originals, a note can still be peeked at without changing that.
   const [flipped, setFlipped] = useState(region.show_original ?? false)
   const [peek, setPeek] = useState(false)
   // The bullet whose source sentence is being shown in the original, if any.
   const [traced, setTraced] = useState<number | null>(null)
-  // The note's words, which the reader can rewrite.
-  const [text, setText] = useState({ bullets: region.bullets, caveat: region.caveat })
+  const text = region
   const [draft, setDraft] = useState<{ bullets: string; caveat: string } | null>(null)
   const summarised = (summariseByDefault ? !flipped : peek) && traced === null
   const toggle = () => {
@@ -45,8 +48,8 @@ export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault
   const labelRef = useRef<HTMLSpanElement>(null)
   // A figure note keeps a readable size and grows past a short caption instead of being fitted to it.
   const figure = region.kind === 'figure'
-  useFitText(textRef, summarised ? text : null)
-  useFitText(labelRef, summarised && detail ? text : null)
+  useFitText(textRef, summarised ? text.bullets.join() + text.caveat : null)
+  useFitText(labelRef, summarised && detail ? text.bullets[0] : null)
   const look = detail ? 'block block-summary block-detail' : figure ? 'block block-summary block-figure' : 'block block-summary'
 
   const percent = (value: number, total: number) => `${(value / total) * 100}%`
@@ -66,18 +69,15 @@ export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault
     if (!draft) return
     const bullets = draft.bullets.split('\n').map((line) => line.replace(/^\s*[-•*]\s*/, '').trim()).filter(Boolean)
     if (bullets.length === 0) return
-    const next = { bullets, caveat: detail ? null : draft.caveat.trim() || null }
-    setText(next)
     setDraft(null)
-    if (region.id) saveRegionText(region.id, next.bullets, next.caveat).catch(() => alert('That could not be saved. Check your connection.'))
+    onEdit(bullets, detail ? null : draft.caveat.trim() || null)
   }
 
-  // A bullet still stands for its source only while it has not been rewritten.
-  const sourceOf = (i: number) => (text.bullets[i] === region.bullets[i] && (sourceRects[i]?.length ?? 0) > 0 ? sourceRects[i]! : null)
+  const sourceOf = (i: number) => ((sourceRects[i]?.length ?? 0) > 0 ? sourceRects[i]! : null)
 
   return (
     <div
-      className={summarised ? look : 'block block-original'}
+      className={(summarised ? look : 'block block-original') + (asking ? ' asking' : '')}
       style={{
         left: percent(x0, pageWidth),
         top: percent(y0, pageHeight),
@@ -116,7 +116,8 @@ export function BlockOverlay({ region, pageWidth, pageHeight, summariseByDefault
               key={i}
               className={sourceOf(i) ? 'has-source' : undefined}
               title={sourceOf(i) ? 'Show where this comes from' : undefined}
-              onClick={sourceOf(i) ? () => setTraced(i) : undefined}
+              // Not when the click ends a text selection, which is how a note is asked about.
+              onClick={sourceOf(i) ? () => document.getSelection()?.isCollapsed !== false && setTraced(i) : undefined}
             >
               {splitTerms(bullet, terms).map((part, p) =>
                 typeof part === 'string' ? (

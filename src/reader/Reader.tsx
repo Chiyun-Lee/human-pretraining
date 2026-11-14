@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   addAnnotation,
+  type Turn,
   type Annotation,
   currentSelection,
   deleteAnnotation,
   listAnnotations,
   type PageSelection,
-  setAnnotationNote,
   setAnnotationThread,
 } from '../annotations/annotations'
 import { type Card, createCards, listPaperCards, saveGuess } from '../learning/cards'
 import { Quiz } from '../learning/Quiz'
 import type { Reference } from '../library/bibliography'
+import type { Box } from '../pdf/figures'
 import { supabase } from '../lib/supabase'
 import { cropFigure } from '../pdf/figureScan'
 import { openPdf, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from '../summaries/invoke'
 import type { Facet, Region } from '../summaries/regions'
 import { type Bibliography, type Brief, readPaper, saveBibliography, type Slide } from '../summaries/slide'
-import { fetchSummaries, readPageBlocks, resetSummaries, summarisePaper } from '../summaries/summarise'
+import { fetchSummaries, paperText, readPageBlocks, resetSummaries, saveRegionText, summarisePaper } from '../summaries/summarise'
+import { AskPanel } from './AskPanel'
 import { type Info, InfoCard } from './InfoCard'
-import { NotePopover } from './NotePopover'
 import { PdfPageView } from './PdfPageView'
 import { ReferencesPanel } from './ReferencesPanel'
 import { SlideCard } from './SlideCard'
@@ -41,6 +42,25 @@ interface Props {
 type Point = { x: number; y: number }
 
 const NONE: Region[] = []
+
+/** A line of the conversation: something said, or a change Claude made to the note (with the note as it was). */
+type Line = Turn | { role: 'edit'; undone: boolean; before: Region }
+
+/** The open conversation with Claude. */
+interface Chat {
+  /** What it is about; null for the paper as a whole. */
+  subject: { page: number; quote: string; area: boolean; rects: Box[] } | null
+  /** The saved highlight (or whole-paper thread) the conversation is kept on, once there is one. */
+  annotationId: string | null
+  /** Whether to keep it: a selection inside a note leaves no mark on the page to come back to. */
+  keep: boolean
+  /** The summary note over the selection, which Claude may rewrite. */
+  regionKey: string | null
+  lines: Line[]
+}
+
+const keyOf = (region: Region) => region.id ?? `${region.page}/${region.x0}/${region.y0}`
+const isTurn = (line: Line): line is Turn => line.role !== 'edit'
 
 interface OpenDocument {
   doc: PdfDocument
@@ -71,12 +91,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selection, setSelection] = useState<PageSelection | null>(null)
   const [brief, setBrief] = useState<Brief | null>(demo?.brief ?? null)
-  /** The highlight panel: for an existing highlight, or for a selection about to become one. */
-  const [editing, setEditing] = useState<
-    | { anchor: Point; focus: 'note' | 'ask'; id: string }
-    | { anchor: Point; focus: 'note' | 'ask'; selection: PageSelection }
-    | null
-  >(null)
+  const [chat, setChat] = useState<Chat | null>(null)
   /** Kinds of source sentence marked on original text. */
   const [facets, setFacets] = useState<Set<Facet>>(new Set(['goal', 'method', 'result']))
   const [info, setInfo] = useState<{ info: Info; anchor: Point } | null>(null)
@@ -126,35 +141,26 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
     }
   }, [paperId])
 
-  // Offer to highlight whatever text is selected on a page.
+  // Offer to ask about, or highlight, whatever text is selected on a page or in a note.
+  const canSelect = !!paperId || !!demo
   useEffect(() => {
-    if (!paperId) return
+    if (!canSelect) return
     const update = () => setSelection(currentSelection())
     document.addEventListener('selectionchange', update)
     return () => document.removeEventListener('selectionchange', update)
-  }, [paperId])
+  }, [canSelect])
 
   const report = (error: unknown) => {
     console.error(error)
     alert('That could not be saved. Check your connection.')
   }
-  const highlight = async (picked: PageSelection, note: string | null): Promise<Annotation | null> => {
-    if (!paperId) return null
+  const highlight = async (picked: PageSelection) => {
+    if (!paperId) return
     try {
-      const { page, rects, quote, area = false } = picked
-      const saved = await addAnnotation(paperId, { page, rects, quote, note, thread: [], area })
+      const { page, rects, quote } = picked
+      const saved = await addAnnotation(paperId, { page, rects, quote, note: null, thread: [], area: false })
       setAnnotations((current) => [...current, saved])
       document.getSelection()?.removeAllRanges()
-      return saved
-    } catch (error) {
-      report(error)
-      return null
-    }
-  }
-  const saveNote = async (annotation: Annotation, note: string) => {
-    try {
-      await setAnnotationNote(annotation.id, note || null)
-      setAnnotations((current) => current.map((a) => (a.id === annotation.id ? { ...a, note: note || null } : a)))
     } catch (error) {
       report(error)
     }
@@ -205,38 +211,119 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
     setQuiz(all.filter((card) => new Date(card.due).getTime() <= now))
   }
 
-  const edited = editing && 'id' in editing ? annotations.find((a) => a.id === editing.id) : undefined
-  const closeEditing = () => {
-    setEditing(null)
-    setAskProblem(undefined)
+  /** Rewrites a note, keeping the source sentence of every bullet that is unchanged. */
+  const rewrite = (key: string, bullets: string[], caveat: string | null) => {
+    const region = regions.find((r) => keyOf(r) === key)
+    if (!region) return
+    const blank = { quote: '', facet: 'other' as const }
+    const sources = region.sources ? bullets.map((bullet) => region.sources![region.bullets.indexOf(bullet)] ?? blank) : null
+    replaceRegion({ ...region, bullets, caveat, sources })
+  }
+  const replaceRegion = (next: Region) => {
+    setRegions((current) => current.map((r) => (keyOf(r) === keyOf(next) ? next : r)))
+    if (next.id) saveRegionText(next.id, next.bullets, next.caveat, next.sources ?? null).catch(report)
   }
 
-  /** Sends a question about the open highlight (creating it first if it is still just a selection). */
+  const regionAt = (page: number, at: Point) =>
+    regions.find((r) => r.page === page && at.x >= r.x0 - 3 && at.x <= r.x1 + 3 && at.y >= r.y0 - 3 && at.y <= r.y1 + 3)
+  const askAbout = (picked: PageSelection) => {
+    const region = regionAt(picked.page, picked.at)
+    setAskProblem(undefined)
+    setChat({
+      subject: { page: picked.page, quote: picked.quote, area: !!picked.area, rects: picked.rects },
+      annotationId: null,
+      keep: picked.rects.length > 0,
+      regionKey: region && region.kind !== 'detail' ? keyOf(region) : null,
+      lines: [],
+    })
+  }
+  const askAboutPaper = () => {
+    const saved = annotations.find((a) => a.page === 0)
+    setAskProblem(undefined)
+    setChat({ subject: null, annotationId: saved?.id ?? null, keep: true, regionKey: null, lines: saved?.thread ?? [] })
+  }
+  const reopen = (annotation: Annotation) => {
+    const first = annotation.rects[0]
+    const region = first && regionAt(annotation.page, { x: (first.x0 + first.x1) / 2, y: (first.y0 + first.y1) / 2 })
+    setAskProblem(undefined)
+    setChat({
+      subject: { page: annotation.page, quote: annotation.quote, area: annotation.area, rects: annotation.rects },
+      annotationId: annotation.id,
+      keep: true,
+      regionKey: region && region.kind !== 'detail' ? keyOf(region) : null,
+      lines: annotation.thread,
+    })
+  }
+  const chatRegion = chat?.regionKey ? (regions.find((r) => keyOf(r) === chat.regionKey) ?? null) : null
+
+  /** Sends a question in the open conversation. */
   const ask = async (question: string) => {
-    if (!editing || !brief || !open || asking) return
+    if (!chat || !brief || !open || asking) return
+    const { subject } = chat
+    const history = chat.lines.filter(isTurn)
+    const asked: Turn = { role: 'user', text: question }
     setAskProblem(undefined)
     setAsking(true)
+    setChat({ ...chat, lines: [...chat.lines, asked] })
     try {
-      let target = edited
-      if ('selection' in editing) {
-        target = (await highlight(editing.selection, null)) ?? undefined
-        if (target) setEditing({ anchor: editing.anchor, focus: 'ask', id: target.id })
-      }
-      if (!target) return
-      const { id, page, quote, thread: history } = target
-      const context = (await readPageBlocks(open.doc, page)).map((block) => block.text).join('\n\n')
+      // A selection is answered from its page; a general question from the whole paper.
+      const context = subject
+        ? (await readPageBlocks(open.doc, subject.page)).map((block) => block.text).join('\n\n')
+        : await paperText(open.doc)
       // For an area, Claude is shown the picture of it.
-      const image = target.area && target.rects[0] ? (await cropFigure(open.doc, page, target.rects[0], 900)).split(',')[1] : undefined
-      const { answer } = await invokeClaude<{ answer: string }>('ask', { brief, context, quote, history, question, image })
-      const thread = [...history, { role: 'user' as const, text: question }, { role: 'claude' as const, text: answer }]
-      setAnnotations((current) => current.map((a) => (a.id === id ? { ...a, thread } : a)))
-      await setAnnotationThread(id, thread)
+      const image = subject?.area && subject.rects[0] ? (await cropFigure(open.doc, subject.page, subject.rects[0], 900)).split(',')[1] : undefined
+      const note = chatRegion ? { bullets: chatRegion.bullets, caveat: chatRegion.caveat } : undefined
+      const reply = await invokeClaude<{ answer: string; note: { bullets: string[]; caveat: string | null } | null }>('ask', {
+        brief,
+        context,
+        quote: subject?.quote ?? '',
+        history,
+        question,
+        image,
+        note,
+      })
+      const answered: Turn = { role: 'claude', text: reply.answer }
+      const added: Line[] = [answered]
+      if (reply.note && chatRegion) {
+        added.push({ role: 'edit', undone: false, before: chatRegion })
+        rewrite(keyOf(chatRegion), reply.note.bullets, reply.note.caveat)
+      }
+      setChat((current) => current && { ...current, lines: [...current.lines, ...added] })
+
+      if (chat.keep && paperId) {
+        const thread = [...history, asked, answered]
+        if (chat.annotationId) {
+          const id = chat.annotationId
+          setAnnotations((current) => current.map((a) => (a.id === id ? { ...a, thread } : a)))
+          await setAnnotationThread(id, thread)
+        } else {
+          const saved = await addAnnotation(paperId, {
+            page: subject?.page ?? 0,
+            rects: subject?.rects ?? [],
+            quote: subject?.quote ?? '',
+            note: null,
+            thread,
+            area: subject?.area ?? false,
+          })
+          setAnnotations((current) => [...current, saved])
+          setChat((current) => current && { ...current, annotationId: saved.id })
+          document.getSelection()?.removeAllRanges()
+        }
+      }
     } catch (error) {
       console.error(error)
-      setAskProblem(error instanceof ClaudeError ? error.message : 'The answer could not be saved. Check your connection.')
+      // Take the unanswered question back out, so the conversation still alternates.
+      setChat((current) => current && { ...current, lines: current.lines.filter((line) => line !== asked) })
+      setAskProblem(error instanceof ClaudeError ? error.message : 'Something went wrong. Check your connection and ask again.')
     } finally {
       setAsking(false)
     }
+  }
+  const undoEdit = (index: number) => {
+    const line = chat?.lines[index]
+    if (!chat || !line || line.role !== 'edit') return
+    replaceRegion(line.before)
+    setChat({ ...chat, lines: chat.lines.map((l, i) => (i === index ? { ...line, undone: true } : l)) })
   }
 
   useEffect(() => {
@@ -363,10 +450,16 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
             >
               {summarise ? 'Show originals' : 'Show summaries'}
             </button>
-            {(paperId || demo) && brief && (
-              <button type="button" className="button" aria-pressed={picking} title="Drag over a figure or equation to ask about it" onClick={() => setPicking(!picking)}>
-                {picking ? 'Cancel' : 'Ask about an area'}
+            {picking ? (
+              <button type="button" className="button" aria-pressed onClick={() => setPicking(false)}>
+                Cancel
               </button>
+            ) : (
+              (paperId || demo) && (
+                <button type="button" className="button" aria-pressed={chat?.subject === null} onClick={askAboutPaper}>
+                  Ask ✦
+                </button>
+              )
             )}
             {paperId && brief && (
               <button type="button" className="button" disabled={writingCards} onClick={() => void startQuiz()}>
@@ -453,7 +546,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
       {!open && !failed && <p className="notice">Opening…</p>}
 
       {open && (
-        <main className="pages">
+        <main className={chat ? 'pages beside-chat' : 'pages'}>
           {writingCards && cards?.length === 0 && <p className="notice">Writing a few questions for you to guess at first…</p>}
           {guesses.length > 0 && (
             <Quiz
@@ -479,7 +572,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
               defaultAspect={open.aspect}
               regions={regionsByPage.get(i + 1) ?? NONE}
               annotations={annotations.filter((annotation) => annotation.page === i + 1)}
-              onPickAnnotation={(annotation, anchor) => setEditing({ anchor, focus: 'note', id: annotation.id })}
+              onPickAnnotation={reopen}
               summarise={summarise}
               showBlocks={showBlocks}
               resetKey={resetKey}
@@ -487,11 +580,13 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
               terms={terms}
               refs={refs}
               onInfo={(shown, anchor) => setInfo({ info: shown, anchor })}
+              onEditRegion={(region, bullets, caveat) => rewrite(keyOf(region), bullets, caveat)}
+              askingRegion={chatRegion}
               onPickArea={
                 picking
                   ? (box, anchor) => {
                       setPicking(false)
-                      setEditing({ anchor, focus: 'ask', selection: { page: i + 1, rects: [box], quote: `Area on page ${i + 1}`, anchor, area: true } })
+                      askAbout({ page: i + 1, rects: [box], quote: `Area on page ${i + 1}`, anchor, at: { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }, area: true })
                     }
                   : undefined
               }
@@ -523,51 +618,55 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
         />
       )}
 
-      {selection && !editing && (
+      {selection && !picking && !(chat && selection.quote === chat.subject?.quote) && (
         <div
           className="selection-bar"
           style={{
-            left: Math.max(8, Math.min(selection.anchor.x - 100, window.innerWidth - 216)),
+            left: Math.max(8, Math.min(selection.anchor.x - 80, window.innerWidth - 176)),
             top: Math.min(selection.anchor.y + 8, window.innerHeight - 48),
           }}
           // Keep the text selected while a button is pressed.
           onPointerDown={(event) => event.preventDefault()}
         >
-          <button type="button" onClick={() => void highlight(selection, null)}>
-            Highlight
+          <button type="button" onClick={() => askAbout(selection)}>
+            Ask ✦
           </button>
-          <button type="button" onClick={() => setEditing({ anchor: selection.anchor, focus: 'ask', selection })}>
-            Ask
-          </button>
-          <button type="button" onClick={() => setEditing({ anchor: selection.anchor, focus: 'note', selection })}>
-            Note
-          </button>
+          {paperId && selection.rects.length > 0 && (
+            <button type="button" onClick={() => void highlight(selection)}>
+              Highlight
+            </button>
+          )}
         </div>
       )}
 
-      {editing && ('selection' in editing || edited) && (
-        <NotePopover
-          key={'id' in editing ? editing.id : 'new'}
-          anchor={editing.anchor}
-          focus={editing.focus}
-          quote={edited?.quote ?? ('selection' in editing ? editing.selection.quote : '')}
-          note={edited?.note ?? ''}
-          thread={edited?.thread ?? []}
-          area={edited?.area ?? ('selection' in editing && !!editing.selection.area)}
-          askUnavailable={brief ? undefined : hasKey ? 'Questions open once Claude has read the paper.' : 'Add your Anthropic API key to ask questions.'}
+      {chat && (
+        <AskPanel
+          subject={chat.subject}
+          hasNote={chatRegion !== null}
+          lines={chat.lines}
           asking={asking}
-          askProblem={askProblem}
+          problem={askProblem}
+          unavailable={brief ? undefined : hasKey ? 'Questions open once Claude has read the paper.' : 'Add your Anthropic API key to ask questions.'}
           onAsk={(question) => void ask(question)}
-          onSave={(note) => {
-            if (edited) void saveNote(edited, note)
-            else if ('selection' in editing) void highlight(editing.selection, note || null)
-            closeEditing()
-          }}
-          onDelete={edited && (() => {
-            void removeAnnotation(edited)
-            closeEditing()
-          })}
-          onClose={closeEditing}
+          onUndo={undoEdit}
+          onPickArea={
+            chat.subject === null
+              ? () => {
+                  setChat(null)
+                  setPicking(true)
+                }
+              : undefined
+          }
+          onRemove={
+            chat.subject && chat.annotationId
+              ? () => {
+                  const saved = annotations.find((a) => a.id === chat.annotationId)
+                  if (saved) void removeAnnotation(saved)
+                  setChat(null)
+                }
+              : undefined
+          }
+          onClose={() => setChat(null)}
         />
       )}
     </>

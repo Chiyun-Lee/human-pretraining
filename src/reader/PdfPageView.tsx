@@ -33,6 +33,9 @@ interface Props {
   terms: Term[]
   refs: Reference[]
   onInfo: (info: Info, anchor: Point) => void
+  onEditRegion: (region: Region, bullets: string[], caveat: string | null) => void
+  /** The note Claude is being asked about, if it is on this page. */
+  askingRegion: Region | null
   /** While set, dragging on the page marks out an area to ask about. */
   onPickArea?: (box: Box, anchor: Point) => void
 }
@@ -63,6 +66,8 @@ export function PdfPageView({
   terms,
   refs,
   onInfo,
+  onEditRegion,
+  askingRegion,
   onPickArea,
 }: Props) {
   const frameRef = useRef<HTMLDivElement>(null)
@@ -260,7 +265,7 @@ export function PdfPageView({
         layout &&
         regions.map((region, i) => (
           <BlockOverlay
-            key={`${resetKey}-${i}`}
+            key={`${resetKey}-${region.id ?? i}`}
             region={region}
             pageWidth={layout.width}
             pageHeight={layout.height}
@@ -269,6 +274,8 @@ export function PdfPageView({
             facets={facets}
             terms={terms}
             onTerm={(term, anchor) => onInfo({ term }, anchor)}
+            onEdit={(bullets, caveat) => onEditRegion(region, bullets, caveat)}
+            asking={region === askingRegion}
           />
         ))}
       {onPickArea && layout && (

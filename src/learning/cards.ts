@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { PdfDocument } from '../pdf/pdfjs'
 import { invokeClaude } from '../summaries/invoke'
 import type { Brief } from '../summaries/slide'
-import { readPageBlocks } from '../summaries/summarise'
+import { paperText } from '../summaries/summarise'
 import { type Grade, localDay, review, type Schedule, streak } from './schedule'
 
 export interface Card extends Schedule {
@@ -45,19 +45,11 @@ export async function listDueCards(): Promise<Card[]> {
   return data as unknown as Card[]
 }
 
-const MAX_CHARS = 180_000
-
 /** Has Claude write a paper's questions, and saves them. */
 export async function createCards(doc: PdfDocument, paperId: string, brief: Brief): Promise<Card[]> {
-  let text = ''
-  for (let pageNumber = 1; pageNumber <= doc.numPages && text.length < MAX_CHARS; pageNumber++) {
-    const blocks = await readPageBlocks(doc, pageNumber)
-    const prose = blocks.filter((block) => block.kind === 'paragraph').map((block) => block.text)
-    text += `[page ${pageNumber}]\n${prose.join('\n\n')}\n\n`
-  }
   const { questions } = await invokeClaude<{ questions: Omit<Card, 'id' | 'paper_id' | keyof Schedule>[] }>('quiz', {
     brief,
-    text: text.slice(0, MAX_CHARS),
+    text: await paperText(doc),
   })
   const rows = questions.map(({ kind, prompt, options, correct, answer, points, page }) => ({
     paper_id: paperId,
