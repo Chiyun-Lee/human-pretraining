@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { addCodebase, type Codebase, deleteCodebase, listCodebases } from '../code/codebases'
+import { parseRepo } from '../code/github'
 import { byline, toBibtex } from './bibliography'
 import { type Card, fetchStudyStats, listDueCards, type StudyStats } from '../learning/cards'
 import { Quiz } from '../learning/Quiz'
@@ -7,10 +9,12 @@ import { addPaper, addPaperFromLink, deletePaper, listPapers, type Paper } from 
 interface Props {
   userId: string
   onOpen: (paper: Paper) => void
+  onOpenCode: (codebase: Codebase) => void
 }
 
-export function Library({ userId, onOpen }: Props) {
+export function Library({ userId, onOpen, onOpenCode }: Props) {
   const [papers, setPapers] = useState<Paper[] | null>(null)
+  const [codebases, setCodebases] = useState<Codebase[]>([])
   const [busy, setBusy] = useState(false)
   const [link, setLink] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +23,9 @@ export function Library({ userId, onOpen }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      setPapers(await listPapers())
+      const [listed, code] = await Promise.all([listPapers(), listCodebases()])
+      setPapers(listed)
+      setCodebases(code)
     } catch {
       setError('Could not load your library. Check your connection.')
     }
@@ -54,7 +60,9 @@ export function Library({ userId, onOpen }: Props) {
     setBusy(true)
     setError(null)
     try {
-      await addPaperFromLink(link)
+      // A GitHub address is a codebase; anything else is a paper.
+      if (parseRepo(link)) await addCodebase(link)
+      else await addPaperFromLink(link)
       setLink('')
       await refresh()
     } catch (problem) {
@@ -71,6 +79,16 @@ export function Library({ userId, onOpen }: Props) {
     link.download = 'library.bib'
     link.click()
     URL.revokeObjectURL(link.href)
+  }
+
+  const removeCode = async (codebase: Codebase) => {
+    if (!confirm(`Remove ${codebase.owner}/${codebase.repo} from your library?`)) return
+    try {
+      await deleteCodebase(codebase.id)
+      await refresh()
+    } catch {
+      setError('That codebase could not be removed.')
+    }
   }
 
   const remove = async (paper: Paper) => {
@@ -103,8 +121,8 @@ export function Library({ userId, onOpen }: Props) {
       <form className="add-row" onSubmit={(event) => void addLink(event)}>
         <input
           className="input"
-          placeholder="Paste a URL, DOI or arXiv ID"
-          aria-label="Paper URL, DOI or arXiv ID"
+          placeholder="Paste a paper URL, DOI, arXiv ID or GitHub repository"
+          aria-label="Paper URL, DOI, arXiv ID or GitHub repository"
           inputMode="url"
           autoCapitalize="off"
           autoCorrect="off"
@@ -154,8 +172,21 @@ export function Library({ userId, onOpen }: Props) {
       )}
       {error && <p className="error">{error}</p>}
       {papers === null && !error && <p className="notice">Loading…</p>}
-      {papers?.length === 0 && <p className="notice">No papers yet. Add a PDF, or drop one here.</p>}
+      {papers?.length === 0 && codebases.length === 0 && <p className="notice">Nothing here yet. Paste a link above, add a PDF, or drop one here.</p>}
       <ul className="paper-list">
+        {codebases.map((codebase) => (
+          <li key={codebase.id}>
+            <button type="button" className="paper" onClick={() => onOpenCode(codebase)}>
+              <span className="paper-title">
+                {codebase.owner}/{codebase.repo}
+              </span>
+              <span className="paper-date">Codebase · {codebase.files.length} files</span>
+            </button>
+            <button type="button" className="button" aria-label={`Remove ${codebase.repo}`} onClick={() => void removeCode(codebase)}>
+              Remove
+            </button>
+          </li>
+        ))}
         {papers?.map((paper) => (
           <li key={paper.id}>
             <button type="button" className="paper" onClick={() => onOpen(paper)}>

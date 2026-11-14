@@ -75,3 +75,65 @@ export const demoRefs: import('../library/bibliography').Reference[] = Array.fro
   venue: i === 12 ? 'Neural Computation' : null,
   text: null,
 }))
+
+// A real public repository with a hand-written map, for ?demo&code
+export const demoCodebase: import('../code/codebases').Codebase = {
+  id: 'demo',
+  owner: 'Chiyun-Lee',
+  repo: 'human-pretraining',
+  ref: 'main',
+  created_at: '2026-01-01T00:00:00Z',
+  files: [
+    { path: 'README.md', size: 3000 },
+    { path: 'package.json', size: 900 },
+    { path: 'package-lock.json', size: 180000 },
+    { path: 'public/fonts/xkcd-script.woff', size: 62000 },
+    { path: 'src/App.tsx', size: 4000 },
+    { path: 'src/main.tsx', size: 300 },
+    { path: 'src/pdf/blocks.ts', size: 14000 },
+    { path: 'src/pdf/pdfjs.ts', size: 2400 },
+    { path: 'src/reader/Reader.tsx', size: 21000 },
+    { path: 'src/reader/useFitText.ts', size: 1400 },
+    { path: 'supabase/functions/summarise/claude.ts', size: 8000 },
+    { path: 'supabase/functions/summarise/index.ts', size: 1500 },
+  ],
+  map: {
+    summary: 'A web app for reading research papers: Claude writes short notes over each paragraph of the PDF, and quizzes you on them later.',
+    stack: ['TypeScript', 'React', 'PDF.js', 'Supabase', 'Claude API'],
+    parts: [
+      { name: 'Reader', role: 'Draws the PDF and lays the summary notes over it.', paths: ['src/reader', 'src/pdf'] },
+      { name: 'Server functions', role: 'Call Claude with the reader’s own key.', paths: ['supabase/functions'] },
+    ],
+    flow: ['App.tsx opens a paper in the Reader.', 'The Reader finds text blocks on each page (src/pdf/blocks.ts).', 'The summarise function turns blocks into notes.'],
+    tour: [
+      { path: 'src/App.tsx', why: 'The screens and how you move between them.' },
+      { path: 'src/pdf/blocks.ts', why: 'How paragraphs are found from raw PDF text.' },
+    ],
+    folders: [
+      { path: 'src/pdf', note: 'Everything that reads the PDF itself.' },
+      { path: 'supabase/functions', note: 'Server code that talks to Claude.' },
+    ],
+    files: [
+      { path: 'src/App.tsx', note: 'Chooses between sign-in, key setup, library and reader.', weight: 'core' },
+      { path: 'src/pdf/blocks.ts', note: 'Groups text fragments into lines, then paragraphs.', weight: 'core' },
+      { path: 'src/reader/useFitText.ts', note: 'Sizes note text to fill its box.', weight: 'support' },
+      { path: 'src/main.tsx', note: 'Mounts the app.', weight: 'skip' },
+    ],
+  },
+}
+
+export const demoSections: Record<string, import('../code/codebases').Section[]> = {
+  'src/reader/useFitText.ts': [
+    { start: 1, end: 7, kind: 'detail', title: 'Imports and limits', bullets: [] },
+    {
+      start: 9,
+      end: 39,
+      kind: 'summary',
+      title: 'useFitText',
+      bullets: [
+        'Finds the largest font size at which a note still fits its box, by binary search between a minimum and a maximum.',
+        'Runs again when the content changes and once the handwriting font has loaded, since the fallback font is narrower.',
+      ],
+    },
+  ],
+}

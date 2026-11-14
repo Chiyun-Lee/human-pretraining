@@ -39,6 +39,7 @@ kind "summary": text that carries the paper's argument, replaced by bullets.
 - One to four bullets. Each is a complete statement that keeps the key numbers and names. Total length about a third of the source and never more than half.
 - Report what is shown, not just what is said. When a passage asserts more than the evidence in the paper supports, word the bullet as what was actually measured or done, and put the gap in caveat: one short sentence such as "Compared against a single baseline" or "Shown on one dataset of 40 patients". Leave caveat empty unless the brief or the passage itself gives you the grounds; never invent a criticism.
 - Every bullet names its source, so the reader can check it against the paper. quote: the one sentence of the original (or its main clause, at most about 30 words) that the bullet most directly rests on, copied character for character from the block text with nothing added, dropped or corrected. facet: what that sentence does in the paper — "goal" (the question, gap or aim), "method" (what was done or how it works), "result" (what was found or measured), or "other".
+- Keep the strength of the original wording: "suggests", "may" and "is associated with" are never upgraded to "shows" or "causes".
 - Write in a neutral voice. Do not adopt the authors' adjectives (novel, significant, state of the art) unless you give the number that earns them.
 
 kind "figure": a note about a figure or table, drawn over its caption while the figure itself stays in view above it.

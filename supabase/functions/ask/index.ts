@@ -37,7 +37,8 @@ export default {
     if (req.method !== "POST") return fail(405, "method_not_allowed");
 
     const body = await req.json().catch(() => null);
-    const brief = readBrief(body?.brief);
+    // A paper sends its brief; a codebase sends its map as text.
+    const brief = typeof body?.brief === "string" ? body.brief.slice(0, 30_000) : readBrief(body?.brief);
     const history = readHistory(body?.history);
     const question = typeof body?.question === "string" ? body.question.trim().slice(0, 2000) : "";
     const quote = typeof body?.quote === "string" ? body.quote.slice(0, 2000) : "";

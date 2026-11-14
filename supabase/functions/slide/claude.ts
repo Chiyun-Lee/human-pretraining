@@ -41,9 +41,9 @@ meta (copied from the front matter you are given; use an empty string or list fo
 - venue: the journal, conference or preprint server.
 
 brief:
-- claims: the 2 to 5 claims the paper stands or falls on, each one sentence with its headline number.
+- claims: the 2 to 5 claims the paper stands or falls on, each one sentence with its headline number. Keep the strength of the paper's own wording: a result that "suggests" stays "suggests", and an association is not reported as a cause.
 - evidence: for each claim, what it actually rests on: which data, which comparison or control, at what scale.
-- weaknesses: the 1 to 4 gaps that most limit the conclusions, such as a missing baseline, a small or unrepresentative sample, a single dataset, an untested assumption, or a claim worded more strongly than its result. Use only gaps you can point to in the text; do not repeat a limitations section for form's sake, and do not invent problems.
+- weaknesses: the 1 to 4 gaps that most limit the conclusions, such as a missing baseline, a small or unrepresentative sample, a single dataset, an untested assumption, or a claim worded more strongly than its result. Where there is one, include the assumption the main result depends on that the paper does not test, said as "If X does not hold, …". Use only gaps you can point to in the text; do not repeat a limitations section for form's sake, and do not invent problems.
 - terms: the 4 to 10 terms, abbreviations and symbols a reader must hold on to, each with one short fixed meaning. Later summaries will use exactly these.
 - focus: two or three sentences naming which sections and results carry the argument, and which material is supporting detail a reader can skip (derivations, hyperparameters, implementation specifics, dataset bookkeeping, exhaustive related work, robustness variants).
 

@@ -12,7 +12,7 @@ const MESSAGES: Record<string, string> = {
 }
 
 /** Calls one of the server functions that use Claude and returns its JSON reply. */
-export async function invokeClaude<T>(name: 'summarise' | 'slide' | 'ask' | 'quiz', body: unknown): Promise<T> {
+export async function invokeClaude<T>(name: 'summarise' | 'slide' | 'ask' | 'quiz' | 'codemap', body: unknown): Promise<T> {
   const { data, error } = await supabase.functions.invoke(name, { body: body as Record<string, unknown> })
   if (!error) return data as T
 

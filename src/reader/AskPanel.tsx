@@ -5,8 +5,10 @@ import type { Turn } from '../annotations/annotations'
 export type ChatLine = Turn | { role: 'edit'; undone: boolean }
 
 interface Props {
-  /** What is being asked about; null for the paper as a whole. */
+  /** What is being asked about; null for the paper (or project) as a whole. */
   subject: { quote: string; area: boolean; page: number } | null
+  /** What the whole thing is called in the heading. */
+  whole?: 'paper' | 'project'
   /** Whether there is a summary note over the selection, which Claude can rewrite. */
   hasNote: boolean
   lines: ChatLine[]
@@ -25,12 +27,14 @@ interface Props {
 
 const STARTERS = {
   paper: ['What is the one thing to take away?', 'What is the weakest part of the argument?', 'What would I need to know first?'],
+  project: ['Where should I start reading?', 'How does a request flow through this?', 'What is the riskiest part of this code?'],
+  code: ['Explain this simply', 'Why is it written this way?', 'What calls this?'],
   text: ['Explain this simply', 'Why does this matter?', 'How solid is this?'],
   area: ['Explain this', 'What should I notice here?', 'Walk me through it step by step'],
 }
 
 /** The conversation with Claude: about a selection, an area of a page, or the whole paper. */
-export function AskPanel({ subject, hasNote, lines, asking, problem, unavailable, onAsk, onUndo, onPickArea, onRemove, onClose }: Props) {
+export function AskPanel({ subject, whole = 'paper', hasNote, lines, asking, problem, unavailable, onAsk, onUndo, onPickArea, onRemove, onClose }: Props) {
   const [question, setQuestion] = useState('')
   const end = useRef<HTMLDivElement>(null)
 
@@ -45,12 +49,12 @@ export function AskPanel({ subject, hasNote, lines, asking, problem, unavailable
     onAsk(question.trim())
     setQuestion('')
   }
-  const starters = STARTERS[subject ? (subject.area ? 'area' : 'text') : 'paper']
+  const starters = STARTERS[subject ? (subject.area ? 'area' : whole === 'project' ? 'code' : 'text') : whole]
 
   return (
     <aside className="ask" aria-label="Ask Claude">
       <header>
-        <h2>{subject ? 'Ask about this' : 'Ask about the paper'}</h2>
+        <h2>{subject ? 'Ask about this' : `Ask about the ${whole}`}</h2>
         <button type="button" className="button" onClick={onClose}>
           Close
         </button>

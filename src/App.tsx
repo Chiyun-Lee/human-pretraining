@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { SignIn } from './auth/SignIn'
 import { useSession } from './auth/useSession'
 import { supabase } from './lib/supabase'
+import type { Codebase } from './code/codebases'
+import { CodeViewer } from './code/CodeViewer'
 import { Library } from './library/Library'
 import { downloadPaper, type Paper } from './library/papers'
 import { Quiz } from './learning/Quiz'
@@ -21,6 +23,7 @@ export function App() {
   if (demo && devParams?.has('quiz')) {
     return <Quiz title="Quiz" cards={demo.demoCards} inline={devParams.has('inline')} predict={devParams.has('inline')} onClose={() => {}} />
   }
+  if (demo && devParams?.has('code')) return <CodeViewer codebase={demo.demoCodebase} hasKey={false} demo={demo.demoSections} />
   if (devFile) {
     return (
       <Reader
@@ -39,6 +42,7 @@ function SignedInApp() {
   const [keyScreen, setKeyScreen] = useState(false)
   const [skipped, setSkipped] = useState(() => localStorage.getItem(SKIPPED_KEY_SETUP) === '1')
   const [reading, setReading] = useState<{ paper: Paper; data: ArrayBuffer } | null>(null)
+  const [coding, setCoding] = useState<Codebase | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const userId = session?.user.id
@@ -56,6 +60,7 @@ function SignedInApp() {
     else {
       setKeyStatus(null)
       setReading(null)
+      setCoding(null)
     }
   }, [userId, loadKeyStatus])
 
@@ -82,6 +87,8 @@ function SignedInApp() {
       />
     )
   }
+
+  if (coding) return <CodeViewer codebase={coding} hasKey={keyStatus.hint !== null} onClose={() => setCoding(null)} />
 
   if (reading) {
     return (
@@ -114,7 +121,7 @@ function SignedInApp() {
           Sign out
         </button>
       </header>
-      <Library userId={session.user.id} onOpen={(paper) => void open(paper)} />
+      <Library userId={session.user.id} onOpen={(paper) => void open(paper)} onOpenCode={setCoding} />
     </>
   )
 }

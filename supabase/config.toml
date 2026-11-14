@@ -460,3 +460,8 @@ import_map = "./functions/ask/deno.json"
 enabled = true
 verify_jwt = false
 import_map = "./functions/quiz/deno.json"
+
+[functions.codemap]
+enabled = true
+verify_jwt = false
+import_map = "./functions/codemap/deno.json"

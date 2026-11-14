@@ -18,7 +18,8 @@ export interface Note {
 }
 
 export interface Question {
-  brief: Brief;
+  /** A paper's brief, or for code the map of the repository as text. */
+  brief: Brief | string;
   /** Text of the page for a selection; of the whole paper (with page markers) for a general question. */
   context: string;
   /** The selected text; empty for a general question. */
@@ -51,6 +52,17 @@ The note — when there is a note over the passage, you can change it: reword a 
 - the reader signals they now understand ("thanks", "got it", "that makes sense") and the conversation showed that a bullet was confusingly worded (reword it so it doesn't trip them next time) or that something needed to understand the passage was missing (add it).
 Then set update_note to true and give the note's complete new bullets and caveat: keep everything you are not changing exactly as it is, including wording the reader wrote themselves; keep each bullet a complete statement under about 20 words in the same plain voice; at most 5 bullets; caveat is one short sentence or empty. Say in your reply what you changed. Otherwise set update_note to false with empty bullets and caveat. Never change the note for trivia, for what it already says clearly, or when there is no note.`;
 
+const CODE_SYSTEM = `You help someone understand a codebase they did not write. It is shown to them as a file tree and, for each file, plain-language notes over sections of code that fold the code away. They ask you about lines they selected (from a note or from the code), or about the project as a whole. You are given a map of the repository, the file they have open if any, what they selected, and the note over it if there is one.
+
+reply — answer the question they asked, for a capable programmer from another stack:
+- Lead with the answer. Two to five sentences is usually right; use more only if the question needs it.
+- Ground the answer in this code. Name the files and functions involved, with line numbers when you can see them. When you rely on a file you have not been shown, say that you are inferring from the map.
+- If the code does something risky, surprising or inconsistent with its apparent intent, say so plainly.
+- If you can't tell from what you were given, say so rather than guessing.
+- Plain text only: no markdown, no code fences; short identifiers inline are fine. It is shown as is in a small chat panel.
+
+The note — when there is a note over the selection, you can change it: reword a bullet, add one, or trim one. Change it when the reader asks ("add that to the note", "simplify this", "add my own point: …"), or when they signal they now understand ("thanks", "got it") and the conversation showed that a bullet was confusing or that something needed to follow the code was missing. Then set update_note to true and give the note's complete new bullets: keep everything you are not changing exactly as it is, each bullet a complete statement under about 25 words, at most 5 bullets, caveat empty. Say in your reply what you changed. Otherwise set update_note to false with empty bullets and caveat. Never change the note for trivia or when there is no note.`;
+
 const OUTPUT_SCHEMA = {
   type: "object",
   properties: {
@@ -72,7 +84,10 @@ export async function answerQuestion(apiKey: string, q: Question): Promise<Reply
   const note = q.note
     ? `The note over the passage:\n${q.note.bullets.map((b) => `- ${b}`).join("\n")}${q.note.caveat ? `\nCaveat: ${q.note.caveat}` : ""}`
     : "There is no note over this passage.";
-  const setting = `Brief of the paper:\n${briefAsText(q.brief)}\n\n${q.quote || q.image ? "Text of the page" : "Text of the paper"}:\n${q.context}\n\n${about}\n\n${note}`;
+  const code = typeof q.brief === "string";
+  const setting = typeof q.brief === "string"
+    ? `Map of the repository:\n${q.brief}\n\n${q.context}\n\n${q.quote ? about : "The reader is asking about the project as a whole; nothing is selected."}\n\n${note}`
+    : `Brief of the paper:\n${briefAsText(q.brief)}\n\n${q.quote || q.image ? "Text of the page" : "Text of the paper"}:\n${q.context}\n\n${about}\n\n${note}`;
 
   const turns = [...q.history, { role: "user" as const, text: q.question }];
   const client = new Anthropic({ apiKey });
@@ -85,7 +100,7 @@ export async function answerQuestion(apiKey: string, q: Question): Promise<Reply
     output_config: { effort: "low", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
     // The paper is the same for every follow-up, so it is cached after the first question.
     system: [
-      { type: "text", text: SYSTEM },
+      { type: "text", text: code ? CODE_SYSTEM : SYSTEM },
       { type: "text", text: setting, cache_control: { type: "ephemeral" } },
     ],
     messages: turns.map((turn, i) => {

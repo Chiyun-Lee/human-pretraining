@@ -32,6 +32,7 @@
     "supabase/functions/add-paper/find.ts",
     "supabase/functions/_shared/brief.ts",
     "supabase/functions/ask/claude.ts",
-    "supabase/functions/quiz/claude.ts"
+    "supabase/functions/quiz/claude.ts",
+    "supabase/functions/codemap/claude.ts"
   ]
 }
