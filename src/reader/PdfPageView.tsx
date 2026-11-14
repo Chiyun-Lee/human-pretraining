@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import { detectBlocks, type Block } from '../pdf/blocks'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Reference } from '../library/bibliography'
+import { detectBlocks, type Block, type TextBox } from '../pdf/blocks'
+import type { Box } from '../pdf/figures'
+import { locateQuote } from '../pdf/locate'
 import { type Figure, findFigures } from '../pdf/figureScan'
 import type { Annotation } from '../annotations/annotations'
 import { pageTextBoxes, renderTextLayer, type PdfDocument } from '../pdf/pdfjs'
-import type { Region } from '../summaries/regions'
+import type { Facet, Region } from '../summaries/regions'
 import { BlockOverlay } from './BlockOverlay'
+import type { Info } from './InfoCard'
+import { findCitations, findTerms, type Term } from './marks'
 
 interface Props {
   doc: PdfDocument
@@ -22,12 +27,23 @@ interface Props {
   showBlocks: boolean
   /** Changes whenever the reader-wide switch is used, to reset per-block switches. */
   resetKey: number
+  /** Which kinds of source sentence are marked on original text. */
+  facets: Set<Facet>
+  /** The paper's defined terms and reference list, for the cards on terms and citations. */
+  terms: Term[]
+  refs: Reference[]
+  onInfo: (info: Info, anchor: Point) => void
+  /** While set, dragging on the page marks out an area to ask about. */
+  onPickArea?: (box: Box, anchor: Point) => void
 }
+
+type Point = { x: number; y: number }
 
 interface PageLayout {
   width: number
   height: number
   blocks: Block[]
+  boxes: TextBox[]
 }
 
 // Keeps canvases within mobile browser memory limits.
@@ -43,6 +59,11 @@ export function PdfPageView({
   summarise,
   showBlocks,
   resetKey,
+  facets,
+  terms,
+  refs,
+  onInfo,
+  onPickArea,
 }: Props) {
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasHolderRef = useRef<HTMLDivElement>(null)
@@ -100,8 +121,8 @@ export function PdfPageView({
     void (async () => {
       const page = await doc.getPage(pageNumber)
       const { width, height } = page.getViewport({ scale: 1 })
-      const blocks = detectBlocks(await pageTextBoxes(page), width)
-      if (!cancelled) setLayout({ width, height, blocks })
+      const boxes = await pageTextBoxes(page)
+      if (!cancelled) setLayout({ width, height, blocks: detectBlocks(boxes, width), boxes })
     })()
     return () => {
       cancelled = true
@@ -144,6 +165,41 @@ export function PdfPageView({
 
   const aspect = layout ? layout.width / layout.height : defaultAspect
 
+  // Where each note's source sentences are, looked for only inside the note's own rectangle.
+  const boxes = layout?.boxes
+  const sourceRects = useMemo(
+    () =>
+      regions.map((region) => {
+        if (!boxes || !region.sources) return []
+        const inside = boxes.filter((b) => b.x + b.width > region.x0 - 2 && b.x < region.x1 + 2 && b.baseline > region.y0 - 2 && b.baseline < region.y1 + 4)
+        return region.sources.map((source) => (source.quote ? locateQuote(inside, source.quote) : []))
+      }),
+    [boxes, regions],
+  )
+  const citations = useMemo(() => (boxes ? findCitations(boxes, refs) : []), [boxes, refs])
+  const termMarks = useMemo(() => (boxes ? findTerms(boxes, terms) : []), [boxes, terms])
+  const place = (box: Box) =>
+    layout && {
+      left: `${(box.x0 / layout.width) * 100}%`,
+      top: `${(box.y0 / layout.height) * 100}%`,
+      width: `${((box.x1 - box.x0) / layout.width) * 100}%`,
+      height: `${((box.y1 - box.y0) / layout.height) * 100}%`,
+    }
+
+  // Dragging out an area to ask about.
+  const [drag, setDrag] = useState<{ from: Point; to: Point } | null>(null)
+  const toPage = (event: { clientX: number; clientY: number }): Point => {
+    const bounds = frameRef.current!.getBoundingClientRect()
+    const scale = (layout?.width ?? 1) / bounds.width
+    return { x: (event.clientX - bounds.left) * scale, y: (event.clientY - bounds.top) * scale }
+  }
+  const dragBox = drag && {
+    x0: Math.min(drag.from.x, drag.to.x),
+    y0: Math.min(drag.from.y, drag.to.y),
+    x1: Math.max(drag.from.x, drag.to.x),
+    y1: Math.max(drag.from.y, drag.to.y),
+  }
+
   return (
     <div
       ref={frameRef}
@@ -165,7 +221,7 @@ export function PdfPageView({
             <button
               key={`${annotation.id}-${i}`}
               type="button"
-              className={annotation.note || annotation.thread.length > 0 ? 'highlight has-note' : 'highlight'}
+              className={`highlight${annotation.note || annotation.thread.length > 0 ? ' has-note' : ''}${annotation.area ? ' area' : ''}`}
               aria-label={annotation.note ? `Note: ${annotation.note}` : annotation.thread.length > 0 ? 'Highlight with questions' : 'Highlight'}
               title={annotation.note ?? annotation.thread[0]?.text}
               style={{
@@ -179,6 +235,28 @@ export function PdfPageView({
           )),
         )}
       {near &&
+        termMarks.map((mark, i) => (
+          <button
+            key={`term-${i}`}
+            type="button"
+            className="mark mark-term"
+            aria-label={`Meaning of ${mark.term.term}`}
+            style={place(mark.box) || undefined}
+            onClick={(event) => onInfo({ term: mark.term }, { x: event.clientX, y: event.clientY })}
+          />
+        ))}
+      {near &&
+        citations.map((mark, i) => (
+          <button
+            key={`cite-${i}`}
+            type="button"
+            className="mark mark-cite"
+            aria-label="Cited paper"
+            style={place(mark.box) || undefined}
+            onClick={(event) => onInfo({ refs: mark.refs }, { x: event.clientX, y: event.clientY })}
+          />
+        ))}
+      {near &&
         layout &&
         regions.map((region, i) => (
           <BlockOverlay
@@ -187,8 +265,29 @@ export function PdfPageView({
             pageWidth={layout.width}
             pageHeight={layout.height}
             summariseByDefault={summarise}
+            sourceRects={sourceRects[i] ?? []}
+            facets={facets}
+            terms={terms}
+            onTerm={(term, anchor) => onInfo({ term }, anchor)}
           />
         ))}
+      {onPickArea && layout && (
+        <div
+          className="area-picker"
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId)
+            setDrag({ from: toPage(event), to: toPage(event) })
+          }}
+          onPointerMove={(event) => drag && setDrag({ ...drag, to: toPage(event) })}
+          onPointerUp={(event) => {
+            setDrag(null)
+            if (dragBox && dragBox.x1 - dragBox.x0 > 12 && dragBox.y1 - dragBox.y0 > 8) onPickArea(dragBox, { x: event.clientX, y: event.clientY })
+          }}
+          onPointerCancel={() => setDrag(null)}
+        >
+          {dragBox && <div className="area-drag" style={place(dragBox) || undefined} />}
+        </div>
+      )}
       {near &&
         showBlocks &&
         layout?.blocks.map((block) => (

@@ -17,8 +17,15 @@ export interface SummaryGroup {
   /** "summary" replaces text with bullets; "figure" is a note over a caption; "detail" masks text behind a label. */
   kind: "summary" | "figure" | "detail";
   bullets: string[];
+  /** One per bullet: the sentence it was drawn from and what that sentence does in the paper. */
+  sources: Source[];
   /** Where the evidence falls short of what this passage claims, or "". */
   caveat: string;
+}
+
+export interface Source {
+  quote: string;
+  facet: "goal" | "method" | "result" | "other";
 }
 
 const SYSTEM = `You annotate a research paper for a reader who wants its substance in five minutes. Your notes are drawn over the PDF in place of the original text, in a larger font inside the rectangle that text occupied; the reader can flip any note back to the original.
@@ -31,15 +38,16 @@ kind "summary": text that carries the paper's argument, replaced by bullets.
 - Use it only for what a reader needs in order to understand and judge the claims in the brief: the question and why it matters, the core idea of the method, the experiments that bear on the claims, the main results, and the limits on them.
 - One to four bullets. Each is a complete statement that keeps the key numbers and names. Total length about a third of the source and never more than half.
 - Report what is shown, not just what is said. When a passage asserts more than the evidence in the paper supports, word the bullet as what was actually measured or done, and put the gap in caveat: one short sentence such as "Compared against a single baseline" or "Shown on one dataset of 40 patients". Leave caveat empty unless the brief or the passage itself gives you the grounds; never invent a criticism.
+- Every bullet names its source, so the reader can check it against the paper. quote: the one sentence of the original (or its main clause, at most about 30 words) that the bullet most directly rests on, copied character for character from the block text with nothing added, dropped or corrected. facet: what that sentence does in the paper — "goal" (the question, gap or aim), "method" (what was done or how it works), "result" (what was found or measured), or "other".
 - Write in a neutral voice. Do not adopt the authors' adjectives (novel, significant, state of the art) unless you give the number that earns them.
 
 kind "figure": a note about a figure or table, drawn over its caption while the figure itself stays in view above it.
 - Every figure and table caption gets a region of its own, covering the whole caption and nothing else. Use kind "figure" when the figure bears on the claims in the brief, and kind "detail" (label such as "Figure 3: ablation variants") when it is peripheral.
-- One or two bullets: what the figure shows and what to notice in it, with the key number or comparison. Start with the figure's number, such as "Fig. 2:". The caveat rule above applies.
+- One or two bullets, each with quote "" and facet "other": what the figure shows and what to notice in it, with the key number or comparison. Start with the figure's number, such as "Fig. 2:". The caveat rule above applies.
 
 kind "detail": text the reader can skip without losing the argument, masked behind a label.
 - Use it freely. Derivation steps, hyperparameters and implementation specifics, dataset bookkeeping, exhaustive related work, robustness variants, extended discussion of side results, author lists and affiliations, acknowledgements, funding, footnotes, reference lists and dense tables are all detail. In most papers more than half of the text is detail; do not summarise something merely because it is there.
-- bullets holds exactly one label of at most six words naming what is underneath, such as "Training hyperparameters", "Proof of Lemma 2" or "References". caveat is empty.
+- bullets holds exactly one label (quote "", facet "other") of at most six words naming what is underneath, such as "Training hyperparameters", "Proof of Lemma 2" or "References". caveat is empty.
 
 Grouping, for both kinds:
 - Put neighbouring blocks that belong together into one region: a paragraph split by a displayed equation, a list with its lead-in sentence, several paragraphs on one point, a whole run of detail.
@@ -64,7 +72,19 @@ const OUTPUT_SCHEMA = {
         properties: {
           blocks: { type: "array", items: { type: "string" } },
           kind: { type: "string", enum: ["summary", "figure", "detail"] },
-          bullets: { type: "array", items: { type: "string" } },
+          bullets: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string" },
+                quote: { type: "string" },
+                facet: { type: "string", enum: ["goal", "method", "result", "other"] },
+              },
+              required: ["text", "quote", "facet"],
+              additionalProperties: false,
+            },
+          },
           caveat: { type: "string" },
         },
         required: ["blocks", "kind", "bullets", "caveat"],
@@ -102,6 +122,14 @@ export async function summariseBlocks(apiKey: string, brief: Brief, blocks: Inpu
   if (response.stop_reason === "max_tokens") throw new Error("summary response was cut off");
 
   const text = response.content.find((block) => block.type === "text")?.text ?? "";
-  const parsed = JSON.parse(text) as { regions: SummaryGroup[] };
-  return parsed.regions;
+  type Written = Omit<SummaryGroup, "bullets" | "sources"> & { bullets: (Source & { text: string })[] };
+  const parsed = JSON.parse(text) as { regions: Written[] };
+  return parsed.regions.map((region) => {
+    const kept = region.bullets.filter((bullet) => bullet.text.trim());
+    return {
+      ...region,
+      bullets: kept.map((bullet) => bullet.text.trim()),
+      sources: kept.map(({ quote, facet }) => ({ quote: quote.trim(), facet })),
+    };
+  });
 }

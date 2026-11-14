@@ -18,7 +18,7 @@ export interface PaperSummaries {
   bibliography: Bibliography
 }
 
-const REGION_COLUMNS = 'id, show_original, page, x0, y0, x1, y1, kind, bullets, caveat'
+const REGION_COLUMNS = 'id, show_original, page, x0, y0, x1, y1, kind, bullets, caveat, sources'
 
 export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
   const [paper, regions] = await Promise.all([

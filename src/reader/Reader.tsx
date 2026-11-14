@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   addAnnotation,
   type Annotation,
@@ -11,11 +11,15 @@ import {
 } from '../annotations/annotations'
 import { type Card, createCards, listPaperCards, saveGuess } from '../learning/cards'
 import { Quiz } from '../learning/Quiz'
+import type { Reference } from '../library/bibliography'
+import { supabase } from '../lib/supabase'
+import { cropFigure } from '../pdf/figureScan'
 import { openPdf, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from '../summaries/invoke'
-import type { Region } from '../summaries/regions'
+import type { Facet, Region } from '../summaries/regions'
 import { type Bibliography, type Brief, readPaper, saveBibliography, type Slide } from '../summaries/slide'
 import { fetchSummaries, readPageBlocks, resetSummaries, summarisePaper } from '../summaries/summarise'
+import { type Info, InfoCard } from './InfoCard'
 import { NotePopover } from './NotePopover'
 import { PdfPageView } from './PdfPageView'
 import { ReferencesPanel } from './ReferencesPanel'
@@ -30,11 +34,13 @@ interface Props {
   /** Whether the user has an Anthropic key stored. */
   hasKey?: boolean
   /** Sample summaries to show instead of loading any (development only). */
-  demo?: { regions: Region[]; slide: Slide }
+  demo?: { regions: Region[]; slide: Slide; brief: Brief; refs: Reference[] }
   onClose?: () => void
 }
 
 type Point = { x: number; y: number }
+
+const NONE: Region[] = []
 
 interface OpenDocument {
   doc: PdfDocument
@@ -60,17 +66,45 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const [progress, setProgress] = useState<Progress | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [confirmRedo, setConfirmRedo] = useState(false)
-  const [bibliography, setBibliography] = useState<Bibliography | null>(null)
+  const [bibliography, setBibliography] = useState<Bibliography | null>(demo ? { doi: null, meta: null, refs: demo.refs } : null)
   const [showRefs, setShowRefs] = useState(false)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selection, setSelection] = useState<PageSelection | null>(null)
-  const [brief, setBrief] = useState<Brief | null>(null)
+  const [brief, setBrief] = useState<Brief | null>(demo?.brief ?? null)
   /** The highlight panel: for an existing highlight, or for a selection about to become one. */
   const [editing, setEditing] = useState<
     | { anchor: Point; focus: 'note' | 'ask'; id: string }
     | { anchor: Point; focus: 'note' | 'ask'; selection: PageSelection }
     | null
   >(null)
+  /** Kinds of source sentence marked on original text. */
+  const [facets, setFacets] = useState<Set<Facet>>(new Set(['goal', 'method', 'result']))
+  const [info, setInfo] = useState<{ info: Info; anchor: Point } | null>(null)
+  const [inLibrary, setInLibrary] = useState<Set<string>>(new Set())
+  /** Whether dragging on a page marks out an area to ask about. */
+  const [picking, setPicking] = useState(false)
+  const regionsByPage = useMemo(() => {
+    const pages = new Map<number, Region[]>()
+    for (const region of regions) pages.set(region.page, [...(pages.get(region.page) ?? []), region])
+    return pages
+  }, [regions])
+  const terms = useMemo(() => brief?.terms ?? [], [brief])
+  const refs = useMemo(() => bibliography?.refs ?? [], [bibliography])
+
+  // Which cited papers the reader already has.
+  useEffect(() => {
+    if (!paperId) return
+    let cancelled = false
+    void supabase
+      .from('papers')
+      .select('doi')
+      .not('doi', 'is', null)
+      .then(({ data }) => !cancelled && data && setInLibrary(new Set(data.map((row) => (row.doi as string).toLowerCase()))))
+    return () => {
+      cancelled = true
+    }
+  }, [paperId])
+
   /** The paper's questions; null until loaded. */
   const [cards, setCards] = useState<Card[] | null>(null)
   const [writingCards, setWritingCards] = useState(false)
@@ -107,8 +141,8 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const highlight = async (picked: PageSelection, note: string | null): Promise<Annotation | null> => {
     if (!paperId) return null
     try {
-      const { page, rects, quote } = picked
-      const saved = await addAnnotation(paperId, { page, rects, quote, note, thread: [] })
+      const { page, rects, quote, area = false } = picked
+      const saved = await addAnnotation(paperId, { page, rects, quote, note, thread: [], area })
       setAnnotations((current) => [...current, saved])
       document.getSelection()?.removeAllRanges()
       return saved
@@ -191,7 +225,9 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
       if (!target) return
       const { id, page, quote, thread: history } = target
       const context = (await readPageBlocks(open.doc, page)).map((block) => block.text).join('\n\n')
-      const { answer } = await invokeClaude<{ answer: string }>('ask', { brief, context, quote, history, question })
+      // For an area, Claude is shown the picture of it.
+      const image = target.area && target.rects[0] ? (await cropFigure(open.doc, page, target.rects[0], 900)).split(',')[1] : undefined
+      const { answer } = await invokeClaude<{ answer: string }>('ask', { brief, context, quote, history, question, image })
       const thread = [...history, { role: 'user' as const, text: question }, { role: 'claude' as const, text: answer }]
       setAnnotations((current) => current.map((a) => (a.id === id ? { ...a, thread } : a)))
       await setAnnotationThread(id, thread)
@@ -327,6 +363,11 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
             >
               {summarise ? 'Show originals' : 'Show summaries'}
             </button>
+            {(paperId || demo) && brief && (
+              <button type="button" className="button" aria-pressed={picking} title="Drag over a figure or equation to ask about it" onClick={() => setPicking(!picking)}>
+                {picking ? 'Cancel' : 'Ask about an area'}
+              </button>
+            )}
             {paperId && brief && (
               <button type="button" className="button" disabled={writingCards} onClick={() => void startQuiz()}>
                 {writingCards ? 'Writing questions…' : 'Quiz'}
@@ -358,6 +399,26 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
               </div>
             </details>
           </>
+        )}
+        {open && regions.some((region) => region.sources) && (
+          <div className="facets" role="group" aria-label="Mark on the original text">
+            <span className="muted">On the original text, mark</span>
+            {(['goal', 'method', 'result'] as const).map((facet) => (
+              <button
+                key={facet}
+                type="button"
+                className={`chip facet-${facet}`}
+                aria-pressed={facets.has(facet)}
+                onClick={() => {
+                  const next = new Set(facets)
+                  if (!next.delete(facet)) next.add(facet)
+                  setFacets(next)
+                }}
+              >
+                {facet}
+              </button>
+            ))}
+          </div>
         )}
         {progress && (
           <div className="progress">
@@ -416,18 +477,41 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
               doc={open.doc}
               pageNumber={i + 1}
               defaultAspect={open.aspect}
-              regions={regions.filter((region) => region.page === i + 1)}
+              regions={regionsByPage.get(i + 1) ?? NONE}
               annotations={annotations.filter((annotation) => annotation.page === i + 1)}
               onPickAnnotation={(annotation, anchor) => setEditing({ anchor, focus: 'note', id: annotation.id })}
               summarise={summarise}
               showBlocks={showBlocks}
               resetKey={resetKey}
+              facets={facets}
+              terms={terms}
+              refs={refs}
+              onInfo={(shown, anchor) => setInfo({ info: shown, anchor })}
+              onPickArea={
+                picking
+                  ? (box, anchor) => {
+                      setPicking(false)
+                      setEditing({ anchor, focus: 'ask', selection: { page: i + 1, rects: [box], quote: `Area on page ${i + 1}`, anchor, area: true } })
+                    }
+                  : undefined
+              }
             />
           ))}
         </main>
       )}
 
       {showRefs && bibliography?.refs && <ReferencesPanel refs={bibliography.refs} onClose={() => setShowRefs(false)} />}
+
+      {picking && <p className="hint">Drag over a figure, table or equation</p>}
+      {info && (
+        <InfoCard
+          anchor={info.anchor}
+          info={info.info}
+          inLibrary={inLibrary}
+          onAdded={(doi) => setInLibrary(new Set(inLibrary).add(doi.toLowerCase()))}
+          onClose={() => setInfo(null)}
+        />
+      )}
 
       {quiz && (
         <Quiz
@@ -469,6 +553,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
           quote={edited?.quote ?? ('selection' in editing ? editing.selection.quote : '')}
           note={edited?.note ?? ''}
           thread={edited?.thread ?? []}
+          area={edited?.area ?? ('selection' in editing && !!editing.selection.area)}
           askUnavailable={brief ? undefined : hasKey ? 'Questions open once Claude has read the paper.' : 'Add your Anthropic API key to ask questions.'}
           asking={asking}
           askProblem={askProblem}

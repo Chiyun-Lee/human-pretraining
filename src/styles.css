@@ -893,3 +893,168 @@ body {
 .streak.pending {
   color: #57606a;
 }
+
+/* Source sentences marked on the original text, coloured by what they do in the paper. */
+.source {
+  position: absolute;
+  border-radius: 2px;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.source-goal,
+.facets .facet-goal[aria-pressed='true'] {
+  background: rgb(120 170 255 / 38%);
+}
+
+.source-method,
+.facets .facet-method[aria-pressed='true'] {
+  background: rgb(255 190 90 / 40%);
+}
+
+.source-result,
+.facets .facet-result[aria-pressed='true'] {
+  background: rgb(110 210 140 / 40%);
+}
+
+.source-other {
+  background: rgb(190 190 200 / 40%);
+}
+
+.source-traced {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  font-size: 13px;
+}
+
+.facets .chip {
+  color: var(--ink);
+  text-transform: capitalize;
+  background: #f0f1f4;
+}
+
+.facets .chip[aria-pressed='false'] {
+  color: #8b929c;
+}
+
+/* A bullet that can be traced to its source, and a defined term inside a note. */
+.block-text .has-source {
+  cursor: pointer;
+}
+
+.block-text .has-source:hover {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
+.term {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+  cursor: help;
+}
+
+/* Terms and citations in the original text. */
+.mark {
+  position: absolute;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.mark-term {
+  border-bottom: 1.5px dotted var(--accent);
+  cursor: help;
+}
+
+.mark-cite {
+  background: rgb(31 47 122 / 10%);
+}
+
+.mark:hover {
+  background: rgb(31 47 122 / 18%);
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+.info {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.info p {
+  margin: 0;
+}
+
+.info ul {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.info li p {
+  margin: 4px 0;
+  color: #3d444d;
+}
+
+.info .row {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.in-library {
+  font-weight: 600;
+  color: #1a7f37;
+}
+
+/* Marking out an area of a page to ask about. */
+.area-picker {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.area-drag {
+  position: absolute;
+  background: rgb(31 47 122 / 12%);
+  border: 1.5px solid var(--accent);
+  border-radius: 3px;
+}
+
+.highlight.area {
+  background: none;
+  border: 1.5px dashed #b7791f;
+  mix-blend-mode: normal;
+}
+
+.hint {
+  position: fixed;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 20;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 999px;
+  transform: translateX(-50%);
+}

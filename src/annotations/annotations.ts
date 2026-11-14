@@ -11,6 +11,8 @@ export interface Annotation {
   note: string | null
   /** Questions asked about the highlighted text, with Claude's answers. */
   thread: Turn[]
+  /** A rectangle drawn on the page (a figure, an equation) rather than selected text. */
+  area: boolean
 }
 
 export interface Turn {
@@ -18,7 +20,7 @@ export interface Turn {
   text: string
 }
 
-const COLUMNS = 'id, page, rects, quote, note, thread'
+const COLUMNS = 'id, page, rects, quote, note, thread, area'
 
 export async function listAnnotations(paperId: string): Promise<Annotation[]> {
   const { data, error } = await supabase.from('annotations').select(COLUMNS).eq('paper_id', paperId).order('created_at')
@@ -78,6 +80,7 @@ export interface PageSelection {
   quote: string
   /** Where on screen the selection ends, for placing the toolbar. */
   anchor: { x: number; y: number }
+  area?: boolean
 }
 
 /** The current text selection, if it lies in a page's text, in that page's units. */

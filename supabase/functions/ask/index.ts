@@ -1,5 +1,5 @@
 // Answers a question about a selected passage with Claude, using the caller's
-// stored Anthropic key.  POST { brief, context, quote, history, question } -> { answer }
+// stored Anthropic key.  POST { brief, context, quote, history, question, image? } -> { answer }
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 import { fail, withAnthropicKey } from "../_shared/anthropic.ts";
@@ -30,8 +30,11 @@ export default {
     const question = typeof body?.question === "string" ? body.question.trim().slice(0, 2000) : "";
     const quote = typeof body?.quote === "string" ? body.quote.slice(0, 2000) : "";
     const context = typeof body?.context === "string" ? body.context.slice(0, 20_000) : "";
+    // A picture of the selected area: base64 PNG, at most about 3 MB.
+    const image = typeof body?.image === "string" && /^[A-Za-z0-9+/]+=*$/.test(body.image) && body.image.length < 4_200_000 ? body.image : undefined;
+    if (body?.image !== undefined && !image) return fail(400, "invalid_request");
     if (!brief || !history || !question || !quote) return fail(400, "invalid_request");
 
-    return withAnthropicKey(ctx, async (key) => ({ answer: await answerQuestion(key, brief, context, quote, history, question) }));
+    return withAnthropicKey(ctx, async (key) => ({ answer: await answerQuestion(key, brief, context, quote, history, question, image) }));
   }),
 };

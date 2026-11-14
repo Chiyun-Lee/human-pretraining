@@ -8,8 +8,16 @@ export const demoRegions: Region[] = [
   { page: 3, x0: 210, y0: 404, x1: 402, y1: 415, kind: 'figure', caveat: null, bullets: ['Fig. 1: encoder (left) and decoder (right), each a stack of 6 identical layers.'] },
   { page: 3, x0: 108, y0: 503, x1: 506, y1: 579, kind: 'summary', caveat: null, bullets: ['Each encoder layer is self-attention then a feed-forward network, with residual connections and layer normalisation.'] },
   { page: 3, x0: 108, y0: 591, x1: 504, y1: 667, kind: 'detail', caveat: null, bullets: ['← Continued'] },
-  { page: 2, x0: 108, y0: 99, x1: 504, y1: 246, kind: 'summary', caveat: null, bullets: ['RNNs, LSTMs and GRUs are the state of the art for sequence modelling and translation.', 'They compute one position at a time, so they cannot be parallelised within a training example.'] },
-  { page: 2, x0: 108, y0: 251, x1: 506, y1: 344, kind: 'summary', caveat: 'Training cost is quoted for one hardware setup only.', bullets: ['Attention models dependencies regardless of distance, but is usually bolted onto an RNN.', 'The Transformer drops recurrence entirely: 12 hours on 8 P100 GPUs reaches a new best in translation.'] },
+  { page: 2, x0: 108, y0: 99, x1: 504, y1: 246, kind: 'summary', caveat: null, bullets: ['RNNs, LSTMs and GRUs are the state of the art for sequence modelling and translation.', 'They compute one position at a time, so they cannot be parallelised within a training example.'],
+    sources: [
+      { facet: 'goal', quote: 'Recurrent neural networks, long short-term memory [13] and gated recurrent [7] neural networks in particular, have been firmly established as state of the art approaches in sequence modeling' },
+      { facet: 'method', quote: 'This inherently sequential nature precludes parallelization within training examples, which becomes critical at longer sequence lengths' },
+    ] },
+  { page: 2, x0: 108, y0: 251, x1: 506, y1: 344, kind: 'summary', caveat: 'Training cost is quoted for one hardware setup only.', bullets: ['Attention models dependencies regardless of distance, but is usually bolted onto an RNN.', 'The Transformer drops recurrence entirely: 12 hours on 8 P100 GPUs reaches a new best in translation.'],
+    sources: [
+      { facet: 'other', quote: '' },
+      { facet: 'result', quote: 'The Transformer allows for significantly more parallelization and can reach a new state of the art in translation quality after being trained for as little as twelve hours on eight P100 GPUs.' },
+    ] },
   { page: 2, x0: 108, y0: 389, x1: 505, y1: 487, kind: 'detail', caveat: null, bullets: ['Related convolutional models'] },
   { page: 2, x0: 108, y0: 493, x1: 506, y1: 623, kind: 'summary', caveat: null, bullets: ['Self-attention relates positions of one sequence to build its representation.', 'This is the first transduction model built on self-attention alone.'] },
 ]
@@ -49,3 +57,21 @@ export const demoCards: import('../learning/cards').Card[] = [
     points: ['No sequential dependence between positions', 'Whole sequence computed in parallel on GPUs'],
   },
 ]
+
+export const demoBrief: import('../summaries/slide').Brief = {
+  claims: [], evidence: [], weaknesses: [], focus: '',
+  terms: [
+    { term: 'Transformer', meaning: 'A sequence model built only from attention layers, with no recurrence or convolution.' },
+    { term: 'RNN', meaning: 'Recurrent neural network: reads a sequence one position at a time.' },
+    { term: 'attention', meaning: 'A layer that lets each position draw on every other position, weighted by relevance.' },
+  ],
+}
+
+export const demoRefs: import('../library/bibliography').Reference[] = Array.from({ length: 40 }, (_, i) => ({
+  doi: i === 12 ? '10.1162/neco.1997.9.8.1735' : null,
+  title: i === 12 ? 'Long short-term memory' : `Reference number ${i + 1}`,
+  author: i === 12 ? 'Hochreiter' : 'Someone',
+  year: 1997 + (i % 20),
+  venue: i === 12 ? 'Neural Computation' : null,
+  text: null,
+}))

@@ -28,7 +28,7 @@ export function App() {
       <>
         <Quiz title="Quiz" cards={demo.demoCards} inline={devParams.has('inline')} predict={devParams.has('inline')} onClose={() => {}} />
         {devParams.has('popover') && (
-          <NotePopover anchor={{ x: 500, y: 300 }} quote="self-attention relates all positions" note="" thread={thread} focus="ask" asking={false} onAsk={() => {}} onSave={() => {}} onDelete={() => {}} onClose={() => {}} />
+          <NotePopover anchor={{ x: 500, y: 300 }} quote="self-attention relates all positions" note="" thread={thread} area={false} focus="ask" asking={false} onAsk={() => {}} onSave={() => {}} onDelete={() => {}} onClose={() => {}} />
         )}
       </>
     )
@@ -38,7 +38,7 @@ export function App() {
       <Reader
         source={new URL(devFile, document.baseURI).href}
         name={devFile.split('/').pop()!}
-        demo={demo ? { regions: demo.demoRegions, slide: demo.demoSlide } : undefined}
+        demo={demo ? { regions: demo.demoRegions, slide: demo.demoSlide, brief: demo.demoBrief, refs: demo.demoRefs } : undefined}
       />
     )
   }

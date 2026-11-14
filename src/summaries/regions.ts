@@ -23,6 +23,15 @@ export interface Region {
   bullets: string[]
   /** Where the evidence falls short of what the passage claims. */
   caveat: string | null
+  /** One per bullet: the sentence of the original it rests on. Absent on older summaries. */
+  sources?: Source[] | null
+}
+
+export type Facet = 'goal' | 'method' | 'result' | 'other'
+
+export interface Source {
+  quote: string
+  facet: Facet
 }
 
 export interface PageBlock extends Block {
@@ -35,6 +44,7 @@ export interface SummaryGroup {
   blocks: string[]
   kind: RegionKind
   bullets: string[]
+  sources?: Source[]
   caveat: string
 }
 
@@ -69,7 +79,11 @@ export function buildRegions(
 
   for (const group of groups) {
     const kind: RegionKind = group.kind === 'detail' || group.kind === 'figure' ? group.kind : 'summary'
-    const bullets = group.bullets.map((bullet) => bullet.trim()).filter(Boolean)
+    const written = group.bullets
+      .map((bullet, i) => ({ text: bullet.trim(), source: group.sources?.[i] ?? { quote: '', facet: 'other' as const } }))
+      .filter((bullet) => bullet.text)
+    const bullets = written.map((bullet) => bullet.text)
+    const sources = written.map((bullet) => bullet.source)
     const members = [...new Set(group.blocks)].map((id) => byId.get(id))
 
     const valid =
@@ -132,6 +146,7 @@ export function buildRegions(
         kind: isMain ? kind : 'detail',
         bullets: isMain ? (kind === 'detail' ? bullets.slice(0, 1) : bullets) : [before ? 'Continues →' : '← Continued'],
         caveat: isMain && kind !== 'detail' && group.caveat.trim() ? group.caveat.trim() : null,
+        sources: isMain && kind === 'summary' && sources.some((source) => source.quote) ? sources : null,
       })
     }
   }

@@ -7,6 +7,8 @@ interface Props {
   quote: string
   note: string
   thread: Turn[]
+  /** The highlight is an area of the page rather than text. */
+  area: boolean
   /** Which field to start in. */
   focus: 'note' | 'ask'
   /** Why questions cannot be asked, if they cannot. */
@@ -21,10 +23,11 @@ interface Props {
 }
 
 const STARTERS = ['Explain this simply', 'Why does this matter?', 'How solid is this?']
+const AREA_STARTERS = ['Explain this', 'What should I notice here?', 'Walk me through it step by step']
 
 /** A small floating panel for a highlight: questions to Claude about it, and the reader's note. */
 export function NotePopover(props: Props) {
-  const { anchor, quote, thread, focus, askUnavailable, asking, askProblem, onAsk, onDelete, onSave, onClose } = props
+  const { anchor, quote, thread, area, focus, askUnavailable, asking, askProblem, onAsk, onDelete, onSave, onClose } = props
   const [note, setNote] = useState(props.note)
   const [question, setQuestion] = useState('')
   const threadEnd = useRef<HTMLDivElement>(null)
@@ -45,7 +48,7 @@ export function NotePopover(props: Props) {
 
   return (
     <div className="popover" style={{ ['--x' as string]: `${left}px`, ['--y' as string]: `${top}px` }} role="dialog" aria-label="Highlight">
-      <p className="popover-quote">“{quote.length > 120 ? quote.slice(0, 120) + '…' : quote}”</p>
+      <p className="popover-quote">{area ? quote : `“${quote.length > 120 ? quote.slice(0, 120) + '…' : quote}”`}</p>
 
       {(thread.length > 0 || asking) && (
         <div className="thread">
@@ -66,7 +69,7 @@ export function NotePopover(props: Props) {
         <>
           {thread.length === 0 && !asking && (
             <div className="chips">
-              {STARTERS.map((starter) => (
+              {(area ? AREA_STARTERS : STARTERS).map((starter) => (
                 <button key={starter} type="button" className="chip" onClick={() => onAsk(starter)}>
                   {starter}
                 </button>

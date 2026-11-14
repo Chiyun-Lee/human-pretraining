@@ -68,7 +68,7 @@ describe('buildRegions', () => {
     const { regions, dropped } = buildRegions([group(['a', 'eq', 'b'], 'One idea.', { caveat: ' One dataset. ' })], blocks)
     expect(dropped).toBe(0)
     expect(regions).toEqual([
-      { page: 1, x0: 50, y0: 100, x1: 280, y1: 205, kind: 'summary', bullets: ['One idea.'], caveat: 'One dataset.' },
+      { page: 1, x0: 50, y0: 100, x1: 280, y1: 205, kind: 'summary', bullets: ['One idea.'], caveat: 'One dataset.', sources: null },
     ])
   })
 
