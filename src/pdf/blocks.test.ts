@@ -118,3 +118,56 @@ describe('buildLines', () => {
     expect(lines).toHaveLength(6)
   })
 })
+
+describe('maths', () => {
+  const box = (str: string, x: number, baseline: number, width: number, size = SIZE): TextBox => ({ str, x, baseline, width, size, font: 'body' })
+
+  it('keeps a line whole when a summation sign sits on a higher baseline inside it', () => {
+    const lines = paragraph(108, 100, 4, 396)
+    // The third line: words, a tall operator with its limit, then more words.
+    lines[2] = box('recover y from the sequence alone: L =', 108, 124, 210)
+    const operator = [box('P', 322, 116.5, 10), box('n', 332, 127, 5, 7), box('(h(x) − y), where n indexes the samples', 338, 124, 166)]
+    const blocks = detectBlocks([...lines, ...operator])
+    expect(blocks.map((b) => [b.kind, b.lineCount])).toEqual([['paragraph', 4]])
+    expect(blocks[0]!.text).toContain('alone: L = Pn(h(x) − y), where n indexes')
+  })
+
+  it('does not let an operator between two lines chain them into one', () => {
+    const lines = paragraph(108, 100, 3, 396)
+    const blocks = detectBlocks([...lines, box('P', 300, 115.6, 10)])
+    expect(blocks.map((b) => b.lineCount)).toEqual([3])
+  })
+
+  it('joins the pieces of a displayed equation into one block that keeps clear of the prose', () => {
+    const above = paragraph(108, 100, 3, 396)
+    const below = paragraph(108, 190, 3, 396)
+    const equation = [
+      box('L =', 173, 150, 17),
+      box('Lsta', 200, 153, 18),
+      box('+ λ Linv + λ Lreg.', 229, 153, 210),
+      box('Sufficiency', 193, 166, 32, 7),
+      box('(6)', 493, 150, 12),
+    ]
+    const blocks = detectBlocks([...above, ...equation, ...below])
+    expect(blocks.map((b) => b.kind)).toEqual(['paragraph', 'other', 'paragraph'])
+    expect(blocks[1]!.pieces!.length).toBeGreaterThan(1)
+    expect(blocks[1]!.text).toContain('(6)')
+    expect(blocks[1]!.y0).toBeGreaterThanOrEqual(blocks[0]!.y1)
+    expect(blocks[1]!.y1).toBeLessThanOrEqual(blocks[2]!.y0)
+  })
+
+  it('does not put a short centred block in a column of its own on a one-column page', () => {
+    const blocks = detectBlocks([...paragraph(108, 100, 4, 396), box('x = y + z', 380, 170, 60), ...paragraph(108, 200, 4, 396)])
+    expect(blocks.map((b) => b.column)).toEqual(['full', 'full', 'full'])
+  })
+
+  it('still keeps the columns of a two-column page', () => {
+    const blocks = detectBlocks([...paragraph(50, 100, 5), box('x = y', 120, 180, 40), ...paragraph(310, 100, 5), box('a = b', 400, 180, 40)])
+    expect(blocks.map((b) => [b.kind, b.column])).toEqual([
+      ['paragraph', 'left'],
+      ['other', 'left'],
+      ['paragraph', 'right'],
+      ['other', 'right'],
+    ])
+  })
+})

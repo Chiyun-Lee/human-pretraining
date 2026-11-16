@@ -1,7 +1,9 @@
 // Finds where a figure's picture sits on the page, given its caption. PDF text
 // says nothing about drawings, so this looks at the rendered page: the figure
 // is the run of non-text "ink" next to the caption, plus the labels inside it.
-import type { Block } from './blocks'
+import { type Block, isCaption } from './blocks'
+
+export { isCaption }
 
 export interface Box {
   x0: number
@@ -19,10 +21,6 @@ export interface InkMask {
   scale: number
 }
 
-const CAPTION = /^(?:(?:supplementary|extended data)\s+)?(?:fig(?:ure)?s?\.?|table|scheme)\s*\.?\s*S?\d+/i
-
-export const isCaption = (block: Block) => CAPTION.test(block.text)
-
 // Page units.
 const MAX_GAP_TO_CAPTION = 40
 const MAX_GAP_INSIDE = 25
@@ -36,7 +34,8 @@ export function figureBox(mask: InkMask, blocks: Block[], caption: Block, pageWi
 
   const without = (hidden: Block[]) => {
     const copy = mask.data.slice()
-    for (const block of hidden) {
+    // A block joined from scattered labels covers the drawing between them, so only the labels are cleared.
+    for (const block of hidden.flatMap((b) => b.pieces ?? [b])) {
       const top = Math.max(0, px(block.y0 - 1))
       const bottom = Math.min(height, px(block.y1 + 1))
       const left = Math.max(0, px(block.x0 - 1))

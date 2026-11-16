@@ -40,7 +40,25 @@ export interface Block {
   y1: number
   text: string
   lineCount: number
+  /**
+   * For a block joined from scattered fragments (a displayed equation, the
+   * labels of a figure): where the fragments are, since the block's own box
+   * also covers whatever lies between them.
+   */
+  pieces?: Box[]
 }
+
+interface Box {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+const CAPTION = /^(?:(?:supplementary|extended data)\s+)?(?:fig(?:ure)?s?\.?|table|scheme)\s*\.?\s*S?\d+/i
+
+/** Whether a block is the caption of a figure or table. */
+export const isCaption = (block: { text: string }) => CAPTION.test(block.text)
 
 const ASCENT = 0.8
 const DESCENT = 0.25
@@ -65,13 +83,15 @@ const roundTo = (value: number, step: number) => Math.round(value / step) * step
 /**
  * Justified text can leave a word gap wider than the same-line limit, which
  * splits one line in two. Rejoin such pieces when a neighbouring line runs
- * straight across the gap, which shows it is not a column gutter.
+ * straight across the gap, which shows it is not a column gutter. Pieces that
+ * touch or overlap are one line too: maths set between them (a summation sign
+ * with its limits) sits on another baseline and breaks the chain of fragments.
  */
 function mergeStretchedLines(groups: TextBox[][]): TextBox[][] {
   const extent = (group: TextBox[]) => ({
     x0: Math.min(...group.map((b) => b.x)),
     x1: Math.max(...group.map((b) => b.x + b.width)),
-    baseline: group.reduce((sum, b) => sum + b.baseline, 0) / group.length,
+    baseline: bodyOf(group).baseline,
     size: Math.max(...group.map((b) => b.size)),
   })
   let extents = groups.map(extent)
@@ -86,8 +106,8 @@ function mergeStretchedLines(groups: TextBox[][]): TextBox[][] {
         const size = Math.max(a.size, b.size)
         if (Math.abs(a.baseline - b.baseline) > 0.45 * size) continue
         const gap = b.x0 - a.x1
-        if (gap <= 0 || gap > 3 * size) continue
-        const bridged = extents.some(
+        if (b.x0 < a.x0 || gap > 3 * size) continue
+        const bridged = gap <= 0.5 * size || extents.some(
           (c) =>
             Math.abs(c.baseline - a.baseline) > 0.5 * size &&
             Math.abs(c.baseline - a.baseline) < 2.5 * size &&
@@ -104,6 +124,66 @@ function mergeStretchedLines(groups: TextBox[][]): TextBox[][] {
     }
   }
   return groups
+}
+
+/** The size of most of a group's text, and the baseline that text sits on. */
+function bodyOf(group: TextBox[]): { size: number; baseline: number } {
+  const size = weightedMode(group.map((box) => [roundTo(box.size, 0.1), box.str.length] as [number, number]))!
+  // The one most of the text shares, so that a few raised or lowered symbols do not shift it.
+  const main = group.filter((box) => Math.abs(box.size - size) < 0.2)
+  return { size, baseline: weightedMode(main.map((box) => [box.baseline, box.str.length] as [number, number]))! }
+}
+
+/**
+ * A large operator (a summation or product sign) is set on a baseline of its
+ * own, well above the words around it. That is close enough to the line above
+ * to join it, and sometimes to chain two lines into one. Split a group that
+ * holds text on two baselines a line apart, and set aside any full-size symbol
+ * that is on neither, to be placed by `attachOperators`.
+ */
+function splitAtOperators(groups: TextBox[][]): TextBox[][] {
+  const result: TextBox[][] = []
+  for (const group of groups) {
+    const { size } = bodyOf(group)
+    const words = group.filter((box) => Math.abs(box.size - size) < 0.2 && box.str.trim().length >= 4)
+    const upper = Math.min(...words.map((box) => box.baseline))
+    if (words.length >= 2 && Math.max(...words.map((box) => box.baseline)) - upper > 0.7 * size) {
+      const above = group.filter((box) => box.baseline - upper < 0.25 * size)
+      result.push(...splitAtOperators([above, group.filter((box) => !above.includes(box))]))
+      continue
+    }
+    const { baseline } = bodyOf(group)
+    const off = (box: TextBox) => box.str.trim().length <= 2 && Math.abs(box.size - size) < 0.2 && Math.abs(box.baseline - baseline) > 0.25 * size
+    const strays = words.length > 0 ? group.filter(off) : []
+    if (strays.length > 0) result.push(group.filter((box) => !strays.includes(box)), ...strays.map((box) => [box]))
+    else result.push(group)
+  }
+  return result
+}
+
+/** Puts a stray operator, and a limit set with it, into the line of words it sits in: the one just below its baseline. */
+function attachOperators(groups: TextBox[][]): TextBox[][] {
+  const kept = groups.filter((group) => group.reduce((length, box) => length + box.str.trim().length, 0) > 3)
+  for (const stray of groups) {
+    if (kept.includes(stray)) continue
+    const size = Math.max(...stray.map((box) => box.size))
+    const baseline = Math.min(...stray.map((box) => box.baseline))
+    const centre = (Math.min(...stray.map((box) => box.x)) + Math.max(...stray.map((box) => box.x + box.width))) / 2
+    const host = kept.find((group) => {
+      const body = bodyOf(group)
+      const below = body.baseline - baseline
+      return (
+        below > 0 &&
+        below < 0.85 * size &&
+        Math.abs(body.size - size) < 0.2 * size &&
+        centre > Math.min(...group.map((box) => box.x)) - size &&
+        centre < Math.max(...group.map((box) => box.x + box.width)) + size
+      )
+    })
+    if (host) host.push(...stray)
+    else kept.push(stray)
+  }
+  return kept
 }
 
 export function buildLines(items: TextBox[]): Line[] {
@@ -144,16 +224,14 @@ export function buildLines(items: TextBox[]): Line[] {
     else grouped.set(root, [box])
   })
 
-  const groups = mergeStretchedLines([...grouped.values()])
+  const groups = mergeStretchedLines(attachOperators(splitAtOperators([...grouped.values()])))
 
   const lines: Line[] = []
   for (const group of groups) {
     group.sort((a, b) => a.x - b.x)
-    const size = weightedMode(group.map((b) => [roundTo(b.size, 0.1), b.str.length] as [number, number]))!
+    // The baseline of the dominant-size fragments, so super/subscripts do not shift the line.
+    const { size, baseline } = bodyOf(group)
     const font = weightedMode(group.map((b) => [b.font, b.str.length] as [string, number]))!
-    // Baseline of the dominant-size fragments, so super/subscripts do not shift the line.
-    const main = group.filter((b) => Math.abs(b.size - size) < 0.2)
-    const baseline = main.reduce((sum, b) => sum + b.baseline, 0) / main.length
 
     let text = ''
     let right = -Infinity
@@ -239,8 +317,13 @@ type UnorderedBlock = Omit<Block, 'index' | 'column'>
 function inReadingOrder(blocks: UnorderedBlock[], pageWidth: number): Block[] {
   const middle = pageWidth / 2
   const margin = 0.1 * pageWidth
-  const columnOf = (block: UnorderedBlock): Column =>
+  const sideOf = (block: UnorderedBlock): Column =>
     block.x0 < middle - margin && block.x1 > middle + margin ? 'full' : (block.x0 + block.x1) / 2 < middle ? 'left' : 'right'
+  // On a page set in one column, a short block (a heading, a centred equation) is not in a column of its own.
+  const prose = blocks.filter((block) => block.kind === 'paragraph')
+  const narrow = prose.filter((block) => sideOf(block) !== 'full').reduce((sum, block) => sum + block.text.length, 0)
+  const oneColumn = prose.length > 0 && narrow < 0.2 * prose.reduce((sum, block) => sum + block.text.length, 0)
+  const columnOf = (block: UnorderedBlock): Column => (oneColumn ? 'full' : sideOf(block))
 
   const ordered: Omit<Block, 'index'>[] = []
   let left: Omit<Block, 'index'>[] = []
@@ -262,6 +345,83 @@ function inReadingOrder(blocks: UnorderedBlock[], pageWidth: number): Block[] {
   }
   flush()
   return ordered.map((block, index) => ({ ...block, index }))
+}
+
+const boxAround = (boxes: Box[]): Box => ({
+  x0: Math.min(...boxes.map((box) => box.x0)),
+  y0: Math.min(...boxes.map((box) => box.y0)),
+  x1: Math.max(...boxes.map((box) => box.x1)),
+  y1: Math.max(...boxes.map((box) => box.y1)),
+})
+
+/**
+ * A displayed equation, a table or the labels of a figure reach here as many
+ * small blocks: one per fraction bar, brace, limit or cell. This joins the
+ * pieces that sit side by side or stacked closely into one block, folds a
+ * piece that lies inside a paragraph into that paragraph, and trims a joined
+ * block where a tall symbol makes it brush the paragraph above or below.
+ */
+function joinFragments(blocks: UnorderedBlock[], bodySize: number, pageWidth: number): UnorderedBlock[] {
+  const prose = blocks.filter((block) => block.kind === 'paragraph')
+  const loose: UnorderedBlock[] = []
+  for (const block of blocks) {
+    if (block.kind === 'paragraph') continue
+    const area = (block.x1 - block.x0) * (block.y1 - block.y0)
+    const host = prose.find(
+      (p) => Math.max(0, overlap(block.x0, block.x1, p.x0, p.x1)) * Math.max(0, overlap(block.y0, block.y1, p.y0, p.y1)) > 0.6 * area,
+    )
+    if (host) host.text += ' ' + block.text
+    else loose.push(block)
+  }
+
+  // Never across the gutter of a two-column page.
+  const middle = pageWidth / 2
+  const side = (block: Box) => (block.x1 < middle + 0.5 * bodySize ? -1 : block.x0 > middle - 0.5 * bodySize ? 1 : 0)
+  const twoColumns = prose.filter((p) => side(p) !== 0).reduce((sum, p) => sum + p.text.length, 0) > 0.2 * prose.reduce((sum, p) => sum + p.text.length, 0)
+  const together = (a: UnorderedBlock, b: UnorderedBlock) => {
+    if (isCaption(a) || isCaption(b)) return false
+    if (twoColumns && side(a) * side(b) < 0) return false
+    const across = overlap(a.x0, a.x1, b.x0, b.x1)
+    const down = overlap(a.y0, a.y1, b.y0, b.y1)
+    const beside = down > 0.3 * Math.min(a.y1 - a.y0, b.y1 - b.y0)
+    const close = across > -bodySize && down > -0.5 * bodySize
+    return beside || close
+  }
+
+  const parent = loose.map((_, i) => i)
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
+  for (let i = 0; i < loose.length; i++) {
+    for (let j = i + 1; j < loose.length; j++) if (together(loose[i]!, loose[j]!)) parent[find(i)] = find(j)
+  }
+  const clusters = new Map<number, UnorderedBlock[]>()
+  loose.forEach((block, i) => clusters.set(find(i), [...(clusters.get(find(i)) ?? []), block]))
+
+  const joined = [...clusters.values()].flatMap((members): UnorderedBlock[] => {
+    if (members.length === 1) return members
+    members.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)
+    const box = boxAround(members)
+    // A tall symbol's box is a guess; do not let it reach into the neighbouring paragraph.
+    for (const p of prose) {
+      if (overlap(box.x0, box.x1, p.x0, p.x1) <= 0) continue
+      const shared = overlap(box.y0, box.y1, p.y0, p.y1)
+      if (shared <= 0 || shared > bodySize) continue
+      if ((box.y0 + box.y1) / 2 > (p.y0 + p.y1) / 2) box.y0 = p.y1
+      else box.y1 = p.y0
+    }
+    // Pieces that only fit in one box by swallowing prose (cells either side of a caption) stay apart.
+    const swallows = prose.some((p) => overlap(box.x0, box.x1, p.x0, p.x1) > 1 && overlap(box.y0, box.y1, p.y0, p.y1) > 1)
+    if (swallows) return members
+    return [
+      {
+        kind: 'other',
+        ...box,
+        text: members.map((member) => member.text).join(' '),
+        lineCount: members.reduce((sum, member) => sum + member.lineCount, 0),
+        pieces: members.map(({ x0, y0, x1, y1 }) => ({ x0, y0, x1, y1 })),
+      },
+    ]
+  })
+  return [...prose, ...joined]
 }
 
 export function buildBlocks(lines: Line[], pageWidth: number): Block[] {
@@ -328,7 +488,7 @@ export function buildBlocks(lines: Line[], pageWidth: number): Block[] {
     }
   }
 
-  const blocks = open.map((block) => {
+  const blocks = open.map((block): UnorderedBlock => {
     const first = block.lines[0]!
     const last = block.lines[block.lines.length - 1]!
     const text = joinLines(block.lines)
@@ -342,7 +502,7 @@ export function buildBlocks(lines: Line[], pageWidth: number): Block[] {
       lineCount: block.lines.length,
     }
   })
-  return inReadingOrder(blocks, pageWidth)
+  return inReadingOrder(joinFragments(blocks, bodySize, pageWidth), pageWidth)
 }
 
 export function detectBlocks(items: TextBox[], pageWidth: number): Block[] {
