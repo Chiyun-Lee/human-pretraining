@@ -18,7 +18,8 @@ import { cropFigure } from '../pdf/figureScan'
 import { openPdf, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from '../summaries/invoke'
 import type { Facet, Region } from '../summaries/regions'
-import { type Bibliography, type Brief, readPaper, saveBibliography, type Slide } from '../summaries/slide'
+import { type Bibliography, type Brief, readPaper, saveBibliography } from '../summaries/slide'
+import type { Slide } from '../summaries/slideShape'
 import { fetchSummaries, paperText, readPageBlocks, resetSummaries, saveRegionText, summarisePaper } from '../summaries/summarise'
 import { AskPanel } from './AskPanel'
 import { type Info, InfoCard } from './InfoCard'
@@ -562,7 +563,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
             />
           )}
           {slide && guesses.length === 0 && !(writingCards && cards?.length === 0) && (
-            <SlideCard slide={slide} paperTitle={slide.paper_title || name} doc={open.doc} />
+            <SlideCard slide={slide} />
           )}
           {Array.from({ length: open.doc.numPages }, (_, i) => (
             <PdfPageView

@@ -1,7 +1,7 @@
 // Sample summaries for checking the reader's look without signing in or
 // calling Claude. Used only in development, with ?file=samples/attention.pdf&demo
 import type { Region } from '../summaries/regions'
-import type { Slide } from '../summaries/slide'
+import type { Slide } from '../summaries/slideShape'
 
 export const demoRegions: Region[] = [
   { page: 1, x0: 133, y0: 235, x1: 204, y1: 256, kind: 'detail', caveat: null, bullets: ['Author and affiliation'] },
@@ -26,20 +26,20 @@ export const demoSlide: Slide = {
   paper_title: 'Attention Is All You Need',
   title: 'Who needs recurrence anyway?',
   takeaway: 'A model built only from attention beats recurrent translators (28.4 BLEU on English-German) and trains in a fraction of the time.',
-  flow: [
-    { kind: 'question', text: 'Can sequence models drop recurrence and convolution?' },
-    { kind: 'approach', text: 'Stack self-attention and feed-forward layers: the Transformer' },
-    { kind: 'approach', text: 'Train on WMT 2014 for 3.5 days on 8 GPUs' },
-    { kind: 'finding', text: '28.4 BLEU En-De, 41.8 En-Fr: new single-model bests' },
-    { kind: 'meaning', text: 'Attention alone is enough, and it parallelises' },
+  question: 'Can sequence models drop recurrence and convolution entirely?',
+  steps: [
+    { text: 'Stack self-attention and feed-forward layers', why: 'Every position sees every other in one hop' },
+    { text: 'Add sinusoidal position encodings', why: 'Attention alone has no sense of order' },
+    { text: 'Train on WMT 2014 with 8 P100 GPUs', why: '' },
   ],
-  figures: [{ page: 3, x0: 190, y0: 70, x1: 420, y1: 398, label: 'Encoder on the left, decoder on the right: no recurrence anywhere' }],
-  bullets: [
-    'Multi-head attention lets the model attend to several positions at once.',
-    'Sinusoidal position encodings stand in for the order that recurrence gave for free.',
-    'It also transfers to English constituency parsing with little tuning.',
-    'Tested only on text; long inputs may need restricted attention.',
+  branches: [
+    { test: 'Translation quality against the best RNN and CNN models', why: 'The headline claim', result: '28.4 BLEU En-De and 41.8 En-Fr: new single-model bests' },
+    { test: 'Training cost', why: '', result: '3.5 days on 8 GPUs, a fraction of earlier models' },
+    { test: 'Vary heads, key size and depth', why: 'Which parts actually matter?', result: 'One head is 0.9 BLEU worse; too many also hurts' },
+    { test: 'English constituency parsing', why: 'Does it work beyond translation?', result: '91.3 F1 with little tuning' },
   ],
+  meaning: 'Attention alone is enough for sequence modelling, and it parallelises.',
+  caveat: 'Tested only on text; long inputs may need restricted attention.',
 }
 
 const unseen = { due: '2026-01-01T00:00:00Z', stability: 0, difficulty: 0, reps: 0, lapses: 0, last_review: null, last_response: null }
@@ -104,7 +104,16 @@ export const demoCodebase: import('../code/codebases').Codebase = {
       { name: 'Reader', role: 'Draws the PDF and lays the summary notes over it.', paths: ['src/reader', 'src/pdf'] },
       { name: 'Server functions', role: 'Call Claude with the reader’s own key.', paths: ['supabase/functions'] },
     ],
-    flow: ['App.tsx opens a paper in the Reader.', 'The Reader finds text blocks on each page (src/pdf/blocks.ts).', 'The summarise function turns blocks into notes.'],
+    flow: [
+      { paths: [{ part: 'Reader', when: '', steps: ['App.tsx opens a paper in the Reader', 'Reader.tsx loads what is already saved'] }] },
+      {
+        paths: [
+          { part: 'Reader', when: 'Page already summarised', steps: ['Draw the saved notes over the page'] },
+          { part: 'Server functions', when: 'Page is new', steps: ['blocks.ts finds the paragraphs', 'summarise/claude.ts writes a note for each', 'Notes are saved through save_page_summaries'] },
+        ],
+      },
+      { paths: [{ part: 'Reader', when: '', steps: ['BlockOverlay.tsx lays each note over its paragraph'] }] },
+    ],
     tour: [
       { path: 'src/App.tsx', why: 'The screens and how you move between them.' },
       { path: 'src/pdf/blocks.ts', why: 'How paragraphs are found from raw PDF text.' },

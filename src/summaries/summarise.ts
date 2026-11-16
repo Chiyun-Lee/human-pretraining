@@ -7,7 +7,8 @@ import type { Box } from '../pdf/figures'
 import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from './invoke'
 import type { PaperMeta, Reference } from '../library/bibliography'
-import { type Bibliography, type Brief, isBrief, isSlide, type Slide } from './slide'
+import { type Bibliography, type Brief, isBrief } from './slide'
+import { readSlide, type Slide } from './slideShape'
 import { buildRegions, type PageBlock, type Region, type Source, type SummaryGroup, uncovered } from './regions'
 
 export interface PaperSummaries {
@@ -30,7 +31,7 @@ export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
   return {
     summarisedPages: paper.data.summarised_pages,
     regions: regions.data as Region[],
-    slide: isSlide(paper.data.slide) ? paper.data.slide : null,
+    slide: readSlide(paper.data.slide),
     brief: isBrief(paper.data.brief) ? paper.data.brief : null,
     bibliography: {
       doi: paper.data.doi as string | null,

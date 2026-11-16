@@ -5,7 +5,6 @@
 import { readFileSync } from 'node:fs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { detectBlocks, type TextBox } from '../src/pdf/blocks.ts'
-import { isCaption } from '../src/pdf/figures.ts'
 import { buildRegions, type PageBlock, uncovered } from '../src/summaries/regions.ts'
 import { makeSlide } from '../supabase/functions/slide/claude.ts'
 import { summariseBlocks } from '../supabase/functions/summarise/claude.ts'
@@ -34,10 +33,9 @@ for (let n = 1; n <= doc.numPages; n++) {
 
 const text = pages.flat().filter((b) => b.kind === 'paragraph').map((b) => b.text).join('\n\n').slice(0, 150_000)
 const front = pages[0]!.map((b) => b.text).join('\n').slice(0, 4000)
-const figures = pages.flat().filter(isCaption).map((b) => ({ id: b.id, caption: b.text.slice(0, 400) }))
 
 console.log('Reading the whole paper…')
-const read = await makeSlide(apiKey, file, text, figures, front)
+const read = await makeSlide(apiKey, file, text, front)
 console.log('\n=== META ===\n', read.meta)
 console.log('\n=== BRIEF ===\n', read.brief)
 console.log('\n=== SLIDE ===\n', read.slide)

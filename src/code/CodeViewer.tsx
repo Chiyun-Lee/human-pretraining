@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Turn } from '../annotations/annotations'
 import { AskPanel } from '../reader/AskPanel'
 import { ClaudeError, invokeClaude } from '../summaries/invoke'
+import { Diagram } from '../diagram/Diagram'
 import { type Codebase, type CodeMap, fileSections, fileText, mapAsText, mapCodebase, placeholder, saveSections, type Section } from './codebases'
 import { FileView } from './FileView'
 import { buildTree, type TreeNode } from './github'
@@ -283,11 +284,16 @@ export function CodeViewer({ codebase, hasKey, demo, onClose }: Props) {
                 ))}
               </div>
               <h2>What happens, step by step</h2>
-              <ol>
-                {map.flow.map((step, i) => (
-                  <li key={i}>{step}</li>
-                ))}
-              </ol>
+              <Diagram
+                rows={map.flow.map((stage) =>
+                  stage.paths.map((path) => ({
+                    tone: stage.paths.length > 1 ? 'test' : 'approach',
+                    label: path.part,
+                    text: path.when,
+                    steps: path.steps.map((text) => ({ text })),
+                  })),
+                )}
+              />
               <h2>Start here</h2>
               <ol className="tour">
                 {map.tour.map((stop) => (

@@ -13,13 +13,18 @@ export interface CodeMap {
   /** The handful of parts the code divides into. */
   parts: { name: string; role: string; paths: string[] }[];
   /** How one typical request or run moves through those parts, in order. */
-  flow: string[];
+  flow: Stage[];
   /** The files to read first, in order, to understand the project. */
   tour: { path: string; why: string }[];
   /** One line on each folder that matters. */
   folders: { path: string; note: string }[];
   /** One line on each file that matters; "skip" marks files a reader can ignore. */
   files: { path: string; note: string; weight: "core" | "support" | "skip" }[];
+}
+
+/** One stage of the flow. Several paths mean the run splits here. */
+export interface Stage {
+  paths: { part: string; when: string; steps: string[] }[];
 }
 
 export interface ListedFile {
@@ -34,7 +39,7 @@ Judge the project from what is in front of you. Prefer what the code layout and 
 - summary: what the project does and for whom, in two or three plain sentences. No marketing words.
 - stack: the 3 to 8 languages, frameworks and external services it rests on.
 - parts: the 3 to 7 parts the code divides into (for example "web client", "API", "background jobs", "database schema"). For each: a short name, its role in one sentence, and the folders or files that make it up. Every important folder belongs to exactly one part.
-- flow: 4 to 6 steps, in order, tracing one typical request, command or run through the parts by name, such as "The reader's page (src/reader) asks the summarise function for a batch of pages". This is the single most useful thing for a newcomer, so make each step concrete.
+- flow: one typical request, command or run traced through the parts, as 3 to 6 stages in order. It is drawn as a flow diagram with one cell per path, and it is the single most useful thing for a newcomer, so make it concrete. A stage normally has one path. Where the run really splits (a cached result against a fresh one, one command against another, success against failure, work done side by side) give that stage 2 or 3 paths. For each path: "part", the name of the part doing the work, exactly as in parts; "when", the condition for taking this path in at most 6 words, or empty if the stage has one path; "steps", 1 to 4 things that happen there in order, each under 12 words and naming the file or function, such as "Reader asks the summarise function for a batch of pages".
 - tour: the 5 to 9 files to read first, in the order to read them, each with one sentence on what to look for in it. Start at the entry point and follow the flow; include the file that holds the central data model. Only paths from the file list.
 - folders: one line (under 15 words) for each folder a newcomer would open, saying what lives there. Skip folders whose name says it all.
 - files: one line (under 15 words) for each file that matters, saying its role in the project rather than its contents (not "Contains utility functions" but "Date and string helpers used by the API routes"), up to about 120, with a weight. "core": the project's own logic that carries the flow. "support": configuration, tests, types, styling, small helpers. "skip": generated, vendored, lock, fixture and boilerplate files that a reader can ignore. Give every file in the tour a "core" note. Only paths from the file list.
@@ -57,7 +62,25 @@ const MAP_SCHEMA = {
         additionalProperties: false,
       },
     },
-    flow: strings,
+    flow: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          paths: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { part: text, when: text, steps: strings },
+              required: ["part", "when", "steps"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["paths"],
+        additionalProperties: false,
+      },
+    },
     tour: {
       type: "array",
       items: { type: "object", properties: { path: text, why: text }, required: ["path", "why"], additionalProperties: false },
@@ -112,6 +135,7 @@ export async function mapRepository(apiKey: string, name: string, files: ListedF
   const isFolder = (path: string) => files.some((file) => file.path.startsWith(path.replace(/\/$/, "") + "/"));
   return {
     ...map,
+    flow: map.flow.map((stage) => ({ paths: stage.paths.filter((path) => path.steps.length > 0).slice(0, 3) })).filter((stage) => stage.paths.length > 0),
     tour: map.tour.filter((stop) => known.has(stop.path)),
     files: map.files.filter((file) => known.has(file.path)),
     folders: map.folders.map((folder) => ({ ...folder, path: folder.path.replace(/\/$/, "") })).filter((folder) => isFolder(folder.path)),
@@ -179,16 +203,6 @@ export function tidySections(sections: Section[], lineCount: number): Section[] 
     covered = end;
   }
   return kept;
-}
-
-/** A short form of the map for requests about one file. */
-export function mapAsText(map: CodeMap): string {
-  return [
-    map.summary,
-    `Parts:\n${map.parts.map((part) => `- ${part.name} (${part.paths.join(", ")}): ${part.role}`).join("\n")}`,
-    `Flow:\n${map.flow.map((step, i) => `${i + 1}. ${step}`).join("\n")}`,
-    `Files:\n${map.files.filter((file) => file.weight !== "skip").map((file) => `- ${file.path}: ${file.note}`).join("\n")}`,
-  ].join("\n\n");
 }
 
 export async function annotateFile(apiKey: string, background: string, path: string, code: string): Promise<Section[]> {

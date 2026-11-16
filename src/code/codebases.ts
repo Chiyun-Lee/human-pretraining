@@ -8,10 +8,16 @@ export interface CodeMap {
   summary: string
   stack: string[]
   parts: { name: string; role: string; paths: string[] }[]
-  flow: string[]
+  /** One typical run through the parts, stage by stage. */
+  flow: Stage[]
   tour: { path: string; why: string }[]
   folders: { path: string; note: string }[]
   files: { path: string; note: string; weight: 'core' | 'support' | 'skip' }[]
+}
+
+/** One stage of the flow. Several paths mean the run splits here. */
+export interface Stage {
+  paths: { part: string; when: string; steps: string[] }[]
 }
 
 export interface Codebase {
@@ -39,7 +45,12 @@ const COLUMNS = 'id, owner, repo, ref, files, map, created_at'
 export async function listCodebases(): Promise<Codebase[]> {
   const { data, error } = await supabase.from('codebases').select(COLUMNS).order('created_at', { ascending: false })
   if (error) throw error
-  return data as Codebase[]
+  return (data as Codebase[]).map((codebase) => ({ ...codebase, map: codebase.map && { ...codebase.map, flow: readFlow(codebase.map.flow) } }))
+}
+
+/** A stored flow. One saved before flows branched is a list of sentences, shown as a plain chain. */
+function readFlow(flow: (Stage | string)[]): Stage[] {
+  return flow.map((stage) => (typeof stage === 'string' ? { paths: [{ part: '', when: '', steps: [stage] }] } : stage))
 }
 
 /** Adds a public GitHub repository. Nothing is sent to Claude until it is opened. */
@@ -80,7 +91,7 @@ export function mapAsText(codebase: Codebase, map: CodeMap): string {
   return [
     `${codebase.owner}/${codebase.repo}: ${map.summary}`,
     `Parts:\n${map.parts.map((part) => `- ${part.name} (${part.paths.join(', ')}): ${part.role}`).join('\n')}`,
-    `Flow:\n${map.flow.map((step, i) => `${i + 1}. ${step}`).join('\n')}`,
+    `Flow:\n${map.flow.flatMap((stage) => stage.paths.map((path) => `- ${[path.part, path.when].filter(Boolean).join(', ')}: ${path.steps.join('; ')}`)).join('\n')}`,
     `Files:\n${map.files.filter((file) => file.weight !== 'skip').map((file) => `- ${file.path}: ${file.note}`).join('\n')}`,
   ]
     .join('\n\n')

@@ -383,20 +383,243 @@ body {
 }
 
 .slide {
+  padding: 20px;
   background: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
-}
-
-.slide svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.slide text {
   font-family: var(--hand);
-  fill: var(--accent);
+  color: var(--accent);
 }
+
+.slide h2 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  text-transform: uppercase;
+  text-decoration: underline;
+}
+
+.slide .takeaway {
+  margin: 0 0 18px;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.slide .caveat {
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border: 2px dashed currentcolor;
+  border-radius: 12px;
+  line-height: 1.3;
+}
+
+.slide .caveat::before {
+  content: 'But… ';
+  text-transform: uppercase;
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.slide-source {
+  margin: 14px 0 0;
+  font-size: 12px;
+  opacity: 0.5;
+}
+
+/* A branched flow diagram: rows of cells joined by arrows. */
+.diagram {
+  container: diagram / inline-size;
+  --gap: 10px;
+  --line: 2px solid var(--accent);
+  font-family: var(--hand);
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--accent);
+}
+
+.diagram-link {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--gap);
+}
+
+.diagram-band {
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  column-gap: var(--gap);
+}
+
+.cell {
+  container: cell / inline-size;
+  padding: 10px 12px;
+  border: var(--line);
+  border-radius: 14px;
+}
+
+.cell h3 {
+  margin: 0 0 4px;
+  font-size: 0.75em;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.cell p {
+  margin: 0;
+}
+
+.tone-question {
+  background: #fdeccd;
+}
+
+.tone-approach {
+  background: #dfe8fb;
+}
+
+.tone-test {
+  background: #fff;
+}
+
+.tone-finding {
+  background: #dcf2e4;
+}
+
+.tone-meaning {
+  background: #f1e1f8;
+}
+
+/* A reason, as a small note stuck under what it explains. */
+.diagram .why {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  background: #fff7c9;
+  border: 1.5px dashed currentcolor;
+  border-radius: 8px;
+  font-size: 0.87em;
+}
+
+.diagram .why::before {
+  content: 'why? ';
+  opacity: 0.6;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin: 6px 0 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  position: relative;
+  flex: 1;
+  padding: 7px 10px;
+  background: rgb(255 255 255 / 75%);
+  border: 1.5px solid currentcolor;
+  border-radius: 10px;
+}
+
+.steps li + li::before {
+  content: '↓';
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  translate: -50%;
+}
+
+@container cell (min-width: 520px) {
+  .steps {
+    flex-direction: row;
+  }
+
+  .steps li + li::before {
+    content: '→';
+    top: 50%;
+    left: -18px;
+    translate: 0 -50%;
+  }
+}
+
+.diagram-link {
+  position: relative;
+  height: 24px;
+}
+
+.diagram-link.stub,
+.diagram-link.join {
+  height: 12px;
+}
+
+.diagram-band > i {
+  height: 24px;
+}
+
+.diagram-link i,
+.diagram-band > i {
+  position: relative;
+  justify-self: center;
+  border-left: var(--line);
+}
+
+.diagram .head::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -6px;
+  border: 5px solid transparent;
+  border-top: 8px solid var(--accent);
+  border-bottom: 0;
+}
+
+/* The rail that joins the branches, from the middle of the first column to the middle of the last. */
+.diagram-link.fork::before,
+.diagram-link.join::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc((100% + var(--gap)) / var(--n) / 2 - var(--gap) / 2) auto;
+  border-top: var(--line);
+}
+
+.diagram-link.join::before {
+  inset-block: auto 0;
+}
+
+/* On a narrow screen the branches turn on their side: one under another in a box, each reading left to right. */
+@container diagram (max-width: 640px) {
+  .diagram-band {
+    grid-auto-flow: column;
+    grid-template-rows: repeat(var(--n), auto);
+    grid-template-columns: var(--across);
+    gap: 8px 0;
+    padding: 8px;
+    border: 2px dashed var(--accent);
+    border-radius: 14px;
+  }
+
+  .diagram-band > i {
+    align-self: center;
+    justify-self: stretch;
+    height: 0;
+    border-left: 0;
+    border-top: var(--line);
+  }
+
+  .diagram-band > .head::after {
+    inset: -6px 0 auto auto;
+    border: 5px solid transparent;
+    border-left: 8px solid var(--accent);
+    border-right: 0;
+  }
+
+  .diagram-link i:not(:first-child),
+  .diagram-link::before {
+    display: none;
+  }
+}
+
 
 .menu {
   position: relative;

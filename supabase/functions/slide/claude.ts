@@ -1,5 +1,5 @@
 // The Claude request that reads a whole paper once, producing the brief that
-// page summaries are written against and the one-slide graphical abstract.
+// page summaries are written against and the one-slide flow diagram.
 // Kept free of Deno-specific imports so it is type-checked with the app.
 import Anthropic from "@anthropic-ai/sdk";
 import { type Brief, BRIEF_SCHEMA } from "../_shared/brief.ts";
@@ -11,10 +11,13 @@ export interface Slide {
   /** A short playful title for the slide. */
   title: string;
   takeaway: string;
-  flow: { kind: "question" | "approach" | "finding" | "meaning"; text: string }[];
-  bullets: string[];
-  /** Candidate key figures, best first, by the ids given in the request. */
-  figures: { id: string; label: string }[];
+  question: string;
+  /** What was done, in order. "why" is empty when there is no reason worth a cell. */
+  steps: { text: string; why: string }[];
+  /** The separate investigations, each leading to its own result. */
+  branches: { test: string; why: string; result: string }[];
+  meaning: string;
+  caveat: string;
 }
 
 /** Bibliographic details as printed on the paper. */
@@ -25,12 +28,7 @@ export interface PrintedMeta {
   venue: string;
 }
 
-export interface FigureCaption {
-  id: string;
-  caption: string;
-}
-
-const SYSTEM = `You read a whole research paper once and produce three things: its bibliographic details, a brief that later requests use to summarise the paper page by page, and a graphical abstract slide.
+const SYSTEM = `You read a whole research paper once and produce three things: its bibliographic details, a brief that later requests use to summarise the paper page by page, and a one-slide flow diagram of the paper.
 
 Read as an independent reviewer, not as the authors' publicist. Separate what the paper shows from what it asserts, and judge the claims by the evidence actually presented.
 
@@ -51,9 +49,12 @@ slide (a warm, slightly playful voice, like a hand-drawn doodle summary, for a r
 - paper_title: the paper's actual title, exactly as printed.
 - title: a short playful title for the whole paper (at most 8 words).
 - takeaway: the one thing to remember, in one sentence (under about 20 words).
-- flow: 4 to 6 steps in order that tell the story of the paper: the question, what they did, what they found, and what it means. Give each step its kind (question, approach, finding or meaning) and at most about 10 words of text.
-- bullets: 3 to 5 key points worth remembering that the flow does not already say, each under about 15 words. The last one is the brief's most important weakness.
-- figures: up to 4 candidate figures that best capture the paper, best first, by id from the list of figure captions you are given, each with a short handwritten callout (under about 12 words) saying what to notice in it. The slide shows the first two. Prefer main figures over supplementary ones and figures over tables. Use only ids from the list; give none if the list is empty.
+The slide is drawn as a branched flow diagram: the question, then one big "what they did" cell holding the steps, then a branch for each investigation leading down to its result, then what it all means, with the caveat underneath. The diagram is the whole summary, so between them the cells must carry everything worth remembering.
+- question: the question the paper sets out to answer (at most about 12 words).
+- steps: the 2 to 5 rough steps of what was done, in order, as a recipe a newcomer could follow (such as build, train, measure), each at most about 8 words. For up to two steps whose choice a newcomer would not guess, give "why": the paper's reason for doing it that way, in at most about 10 words. Leave "why" empty for the rest.
+- branches: the 2 to 4 separate investigations (experiments, analyses, comparisons, ablations) that the brief's claims rest on, most important first. For each: "test", what was examined (at most about 10 words); "why", what this check was meant to settle or rule out (at most about 10 words, or empty if it is obvious); and "result", what came out, with its headline number and the paper's own hedging (at most about 12 words).
+- meaning: what the results add up to (at most about 15 words).
+- caveat: the brief's most important weakness (at most about 15 words).
 
 The slide must agree with the brief. Plain text only: no markdown, no citation markers, maths in plain Unicode. State only what the text supports. If the text is not a research paper, describe what it is in the same fields as well as they fit.`;
 
@@ -64,27 +65,24 @@ const SLIDE_SCHEMA = {
     paper_title: text,
     title: text,
     takeaway: text,
-    flow: {
+    question: text,
+    steps: {
+      type: "array",
+      items: { type: "object", properties: { text, why: text }, required: ["text", "why"], additionalProperties: false },
+    },
+    branches: {
       type: "array",
       items: {
         type: "object",
-        properties: { kind: { type: "string", enum: ["question", "approach", "finding", "meaning"] }, text },
-        required: ["kind", "text"],
+        properties: { test: text, why: text, result: text },
+        required: ["test", "why", "result"],
         additionalProperties: false,
       },
     },
-    bullets: { type: "array", items: text },
-    figures: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { id: text, label: text },
-        required: ["id", "label"],
-        additionalProperties: false,
-      },
-    },
+    meaning: text,
+    caveat: text,
   },
-  required: ["paper_title", "title", "takeaway", "flow", "bullets", "figures"],
+  required: ["paper_title", "title", "takeaway", "question", "steps", "branches", "meaning", "caveat"],
   additionalProperties: false,
 };
 
@@ -106,10 +104,8 @@ export async function makeSlide(
   apiKey: string,
   name: string,
   paperText: string,
-  figures: FigureCaption[],
   front: string,
 ): Promise<{ meta: PrintedMeta; brief: Brief; slide: Slide }> {
-  const captions = figures.length > 0 ? figures.map((f) => `${f.id}: ${f.caption}`).join("\n") : "(none)";
   const client = new Anthropic({ apiKey });
   const response = await client.beta.messages.create({
     model: "claude-opus-5-5",
@@ -120,7 +116,7 @@ export async function makeSlide(
     output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
     system: SYSTEM,
     messages: [
-      { role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nFigure captions:\n${captions}\n\nPaper text:\n${paperText}` },
+      { role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nPaper text:\n${paperText}` },
     ],
   });
 
@@ -129,15 +125,5 @@ export async function makeSlide(
 
   const output = response.content.find((block) => block.type === "text")?.text ?? "";
   const { meta, brief, slide } = JSON.parse(output) as { meta: PrintedMeta; brief: Brief; slide: Slide };
-  const known = new Set(figures.map((f) => f.id));
-  return {
-    meta,
-    brief,
-    slide: {
-      ...slide,
-      flow: slide.flow.slice(0, 6),
-      bullets: slide.bullets.slice(0, 5),
-      figures: slide.figures.filter((f) => known.has(f.id)).slice(0, 4),
-    },
-  };
+  return { meta, brief, slide: { ...slide, steps: slide.steps.slice(0, 5), branches: slide.branches.slice(0, 4) } };
 }
