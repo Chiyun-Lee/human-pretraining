@@ -3,6 +3,7 @@
 // type-checked with the app.
 import { type Brief, briefAsText } from "../_shared/brief.ts";
 import { MODELS, structured } from "../_shared/claude.ts";
+import { audience, type Level } from "../_shared/level.ts";
 
 export interface Question {
   kind: "recall" | "explain" | "apply" | "critique";
@@ -19,7 +20,7 @@ export interface Question {
   page: number;
 }
 
-const WRITE_SYSTEM = `You write the questions a reader will use to learn a research paper: a set to answer after reading and again at growing intervals over the following months. You are given a brief of the paper (written by an independent reviewer) and the paper's text with page markers.
+const WRITE_SYSTEM = `You write the questions a reader will use to learn a research paper: a set to answer after reading and again at growing intervals over the following months. You are given a brief of the paper (written by an independent reviewer), the paper's text with page markers, and a description of the reader. Pitch the questions and answers to that reader: an expert gets sharper questions on methods, results and limits in the field's own terms; a lay reader gets the main ideas in everyday words.
 
 Ask only about what is worth still knowing in six months: what was claimed, what it rests on, how the key method works, what the central terms mean, and where the evidence falls short. Never ask about incidental numbers, hyperparameters, section order, author names or anything the brief calls supporting detail.
 
@@ -84,13 +85,13 @@ export function usable(questions: Question[]): Question[] {
     .slice(0, 12);
 }
 
-export async function writeQuestions(apiKey: string, brief: Brief, paperText: string): Promise<Question[]> {
+export async function writeQuestions(apiKey: string, brief: Brief, level: Level, paperText: string): Promise<Question[]> {
   const { questions } = await structured<{ questions: Question[] }>(apiKey, {
     model: MODELS.write,
     effort: "medium",
     maxTokens: 16000,
     system: WRITE_SYSTEM,
-    messages: [{ role: "user", content: `Brief of the paper:\n${briefAsText(brief)}\n\nPaper text:\n${paperText}` }],
+    messages: [{ role: "user", content: `Brief of the paper:\n${briefAsText(brief)}\n\nPaper text:\n${paperText}\n\n${audience(level)}` }],
     schema: QUESTIONS_SCHEMA,
   });
   return usable(questions);

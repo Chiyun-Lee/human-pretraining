@@ -3,6 +3,7 @@
 // Kept free of Deno-specific imports so it is type-checked with the app.
 import { type Brief, BRIEF_SCHEMA } from "../_shared/brief.ts";
 import { MODELS, structured } from "../_shared/claude.ts";
+import { audience, type Level } from "../_shared/level.ts";
 
 export interface Slide {
   /** The paper's real title, as printed. */
@@ -44,7 +45,7 @@ brief:
 - terms: the 4 to 10 terms, abbreviations and symbols a reader must hold on to, each with one short fixed meaning. Later summaries will use exactly these.
 - focus: two or three sentences naming which sections and results carry the argument, and which material is supporting detail a reader can skip (derivations, hyperparameters, implementation specifics, dataset bookkeeping, exhaustive related work, robustness variants).
 
-slide (a warm, slightly playful voice, like a hand-drawn doodle summary, for a researcher from a neighbouring field; keep the real numbers and names):
+slide (a warm, slightly playful voice, like a hand-drawn doodle summary, pitched to the reader described at the end of the request; keep the real numbers and names). The meta and the brief are a record of the paper and are written the same way whoever the reader is:
 - paper_title: the paper's actual title, exactly as printed.
 - title: a short playful title for the whole paper (at most 8 words).
 - takeaway: the one thing to remember, in one sentence (under about 20 words).
@@ -104,13 +105,14 @@ export async function makeSlide(
   name: string,
   paperText: string,
   front: string,
+  level: Level,
 ): Promise<{ meta: PrintedMeta; brief: Brief; slide: Slide }> {
   const { meta, brief, slide } = await structured<{ meta: PrintedMeta; brief: Brief; slide: Slide }>(apiKey, {
     model: MODELS.read,
     effort: "medium",
     maxTokens: 16000,
     system: SYSTEM,
-    messages: [{ role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nPaper text:\n${paperText}` }],
+    messages: [{ role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nPaper text:\n${paperText}\n\n${audience(level)}` }],
     schema: OUTPUT_SCHEMA,
   });
   return { meta, brief, slide: { ...slide, steps: slide.steps.slice(0, 5), branches: slide.branches.slice(0, 4) } };

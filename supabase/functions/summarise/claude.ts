@@ -2,6 +2,7 @@
 // Kept free of Deno-specific imports so it is type-checked with the app.
 import { type Brief, briefAsText } from "../_shared/brief.ts";
 import { cached, MODELS, structured } from "../_shared/claude.ts";
+import { audience, type Level } from "../_shared/level.ts";
 
 export interface InputBlock {
   id: string;
@@ -27,7 +28,7 @@ export interface Source {
   facet: "goal" | "method" | "result" | "other";
 }
 
-const SYSTEM = `You annotate a research paper for a reader who wants its substance in five minutes. Your notes are drawn over the PDF in place of the original text, in a larger font inside the rectangle that text occupied; the reader can flip any note back to the original.
+const SYSTEM = `You annotate a research paper for a reader who wants its substance in five minutes; who that reader is, and so how to word things for them, is described with the brief. Your notes are drawn over the PDF in place of the original text, in a larger font inside the rectangle that text occupied; the reader can flip any note back to the original.
 
 You are given a brief of the whole paper, written by an independent reviewer, and then the text blocks of a few pages in reading order, one per line, as four fields separated by tabs: id, kind ("text" is body prose, from a full paragraph down to a single line; "other" is a heading, equation, caption, list fragment, table cell or page furniture), column (left, right or full), and the text.
 
@@ -99,14 +100,14 @@ const OUTPUT_SCHEMA = {
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ");
 
-export async function summariseBlocks(apiKey: string, brief: Brief, blocks: InputBlock[], todo: string[] = []): Promise<SummaryGroup[]> {
+export async function summariseBlocks(apiKey: string, brief: Brief, level: Level, blocks: InputBlock[], todo: string[] = []): Promise<SummaryGroup[]> {
   type Written = Omit<SummaryGroup, "blocks" | "bullets" | "sources"> & { first: string; last: string; bullets: (Source & { text: string })[] };
   const { regions } = await structured<{ regions: Written[] }>(apiKey, {
     model: MODELS.write,
     effort: "low",
     maxTokens: 16000,
-    // The brief is the same for every batch of the paper, so it is cached after the first.
-    system: [{ type: "text", text: SYSTEM }, cached(`Brief of the whole paper:\n\n${briefAsText(brief)}`)],
+    // The brief and the reader are the same for every batch of the paper, so they are cached after the first.
+    system: [{ type: "text", text: SYSTEM }, cached(`Brief of the whole paper:\n\n${briefAsText(brief)}\n\n${audience(level)}`)],
     messages: [
       {
         role: "user",

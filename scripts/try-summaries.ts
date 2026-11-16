@@ -6,13 +6,15 @@ import { readFileSync } from 'node:fs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { detectBlocks, type TextBox } from '../src/pdf/blocks.ts'
 import { buildRegions, type PageBlock, uncovered } from '../src/summaries/regions.ts'
+import { readLevel } from '../supabase/functions/_shared/level.ts'
 import { makeSlide } from '../supabase/functions/slide/claude.ts'
 import { summariseBlocks } from '../supabase/functions/summarise/claude.ts'
 
-const [file, pagesArg = '4'] = process.argv.slice(2)
+const [file, pagesArg = '4', levelArg] = process.argv.slice(2)
+const level = readLevel(levelArg)
 const apiKey = process.env.ANTHROPIC_API_KEY
 if (!file || !apiKey) {
-  console.error('usage: node --env-file=.env.local scripts/try-summaries.ts paper.pdf [pages]')
+  console.error('usage: node --env-file=.env.local scripts/try-summaries.ts paper.pdf [pages] [lay|technical|expert]')
   process.exit(1)
 }
 
@@ -35,7 +37,7 @@ const text = pages.flat().filter((b) => b.kind === 'paragraph').map((b) => b.tex
 const front = pages[0]!.map((b) => b.text).join('\n').slice(0, 4000)
 
 console.log('Reading the whole paper…')
-const read = await makeSlide(apiKey, file, text, front)
+const read = await makeSlide(apiKey, file, text, front, level)
 console.log('\n=== META ===\n', read.meta)
 console.log('\n=== BRIEF ===\n', read.brief)
 console.log('\n=== SLIDE ===\n', read.slide)
@@ -49,7 +51,7 @@ for (let start = 0; start < count; start += 3) {
     column: b.column,
     text: b.kind === 'paragraph' ? b.text : b.text.slice(0, 200),
   }))
-  const groups = await summariseBlocks(apiKey, read.brief, payload)
+  const groups = await summariseBlocks(apiKey, read.brief, level, payload)
   const used = new Set<string>()
   const { regions, dropped } = buildRegions(groups, blocks, used)
   const prose = blocks.filter((b) => b.kind === 'paragraph')

@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase'
 import { fetchCrossref, type PaperMeta, type Reference } from '../library/bibliography'
 import type { PdfDocument } from '../pdf/pdfjs'
 import { invokeClaude } from './invoke'
+import type { Level } from './level'
 import type { Slide } from './slideShape'
 import { readPageBlocks, readProse } from './summarise'
 
@@ -50,7 +51,7 @@ export async function saveBibliography(paperId: string, doi: string | null, prin
 }
 
 /**
- * Has Claude read the whole paper: writes the brief and the slide, and saves
+ * Has Claude read the whole paper: writes the brief and the slide for the given reader, and saves
  * both with the paper's real title and bibliographic details.
  */
 export async function readPaper(
@@ -58,14 +59,15 @@ export async function readPaper(
   paperId: string,
   name: string,
   knownDoi: string | null,
+  level: Level,
 ): Promise<{ brief: Brief; slide: Slide; bibliography: Bibliography }> {
   const text = (await readProse(doc)).join('\n\n')
   const front = (await readPageBlocks(doc, 1)).map((b) => b.text).join('\n').slice(0, 4000)
 
-  const result = await invokeClaude<{ meta: PrintedMeta; brief: Brief; slide: Slide }>('slide', { name, text: text.slice(0, MAX_CHARS), front })
+  const result = await invokeClaude<{ meta: PrintedMeta; brief: Brief; slide: Slide }>('slide', { name, text: text.slice(0, MAX_CHARS), front, level })
 
   const title = result.slide.paper_title.trim()
-  const { error } = await supabase.from('papers').update({ brief: result.brief, slide: result.slide, ...(title && { title }) }).eq('id', paperId)
+  const { error } = await supabase.from('papers').update({ brief: result.brief, slide: result.slide, level, ...(title && { title }) }).eq('id', paperId)
   if (error) console.error(error) // still usable for this session; it is written again next time
 
   const printedDoi = result.meta.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').trim()

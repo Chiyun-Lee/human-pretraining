@@ -1,10 +1,11 @@
 // Review cards, using the caller's stored Anthropic key.
-//   POST { brief, text }                              -> { questions }
+//   POST { brief, level, text }                            -> { questions }
 //   POST { judge: { prompt, answer, points }, response } -> { verdict, feedback }
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 import { fail, withAnthropicKey } from "../_shared/anthropic.ts";
 import { readBrief } from "../_shared/brief.ts";
+import { readLevel } from "../_shared/level.ts";
 import { judgeAnswer, writeQuestions } from "./claude.ts";
 
 const MAX_CHARS = 200_000;
@@ -27,6 +28,6 @@ export default {
     const brief = readBrief(body?.brief);
     const text = typeof body?.text === "string" ? body.text : "";
     if (!brief || text.length < 200 || text.length > MAX_CHARS) return fail(400, "invalid_request");
-    return withAnthropicKey(ctx, async (key) => ({ questions: await writeQuestions(key, brief, text) }));
+    return withAnthropicKey(ctx, async (key) => ({ questions: await writeQuestions(key, brief, readLevel(body.level), text) }));
   }),
 };

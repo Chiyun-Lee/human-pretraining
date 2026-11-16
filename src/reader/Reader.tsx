@@ -17,6 +17,7 @@ import { supabase } from '../lib/supabase'
 import { cropFigure } from '../pdf/figureScan'
 import { openPdf, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from '../summaries/invoke'
+import { type Level, LEVELS, preferredLevel, rememberLevel } from '../summaries/level'
 import type { Facet, Region } from '../summaries/regions'
 import { type Bibliography, type Brief, readPaper, saveBibliography } from '../summaries/slide'
 import type { Slide } from '../summaries/slideShape'
@@ -86,7 +87,9 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const [slide, setSlide] = useState<Slide | null>(demo?.slide ?? null)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const [confirmRedo, setConfirmRedo] = useState(false)
+  /** Who the notes are written for, and the level a rewrite is waiting to be confirmed for. */
+  const [level, setLevel] = useState<Level>(preferredLevel)
+  const [pendingLevel, setPendingLevel] = useState<Level | null>(null)
   const [bibliography, setBibliography] = useState<Bibliography | null>(demo ? { doi: null, meta: null, refs: demo.refs } : null)
   const [showRefs, setShowRefs] = useState(false)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
@@ -192,7 +195,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
     if (!paperId) return null
     setWritingCards(true)
     try {
-      const written = await createCards(doc, paperId, from)
+      const written = await createCards(doc, paperId, from, level)
       setCards(written)
       return written
     } catch (error) {
@@ -275,6 +278,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
       const note = chatRegion ? { bullets: chatRegion.bullets, caveat: chatRegion.caveat } : undefined
       const reply = await invokeClaude<{ answer: string; note: { bullets: string[]; caveat: string | null } | null }>('ask', {
         brief,
+        level,
         context,
         quote: subject?.quote ?? '',
         history,
@@ -375,6 +379,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
       setSlide(saved.slide)
       setBibliography(saved.bibliography)
       setBrief(saved.brief)
+      setLevel(saved.level)
       // A paper whose DOI is known but whose references were never looked up (no Claude call needed).
       if (saved.bibliography.doi && !saved.bibliography.refs) {
         void saveBibliography(paperId, saved.bibliography.doi).then((found) => !cancelled() && setBibliography(found))
@@ -389,7 +394,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
         // Claude reads the whole paper first; every page is then summarised against that one brief.
         let brief = saved.brief
         if (!brief || !saved.slide) {
-          const read = await readPaper(doc, paperId, name, saved.bibliography.doi)
+          const read = await readPaper(doc, paperId, name, saved.bibliography.doi, saved.level)
           brief = read.brief
           if (!cancelled()) {
             setBrief(read.brief)
@@ -404,7 +409,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
           setRegions((current) => [...current, ...added])
           setProgress({ done, total, working: true })
         }
-        await summarisePaper(doc, paperId, brief, saved.summarisedPages, onSaved, run.signal)
+        await summarisePaper(doc, paperId, brief, saved.level, saved.summarisedPages, onSaved, run.signal)
         if (!cancelled()) setProgress({ done, total, working: false })
       } catch (error) {
         stop(explain(error, 'Summarising failed. Try again.'))
@@ -415,11 +420,14 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
     }
   }, [doc, paperId, hasKey, name, attempt])
 
-  const redo = async () => {
+  /** Has everything written again, for the given reader. */
+  const redo = async (next: Level) => {
     if (!paperId) return
-    setConfirmRedo(false)
+    setPendingLevel(null)
     try {
-      await resetSummaries(paperId)
+      await resetSummaries(paperId, next)
+      rememberLevel(next)
+      setLevel(next)
       setRegions([])
       setSlide(null)
       setAttempt((n) => n + 1)
@@ -468,7 +476,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
                 {writingCards ? 'Writing questions…' : 'Quiz'}
               </button>
             )}
-            <details className="menu" onToggle={(event) => !event.currentTarget.open && setConfirmRedo(false)}>
+            <details className="menu" onToggle={(event) => !event.currentTarget.open && setPendingLevel(null)}>
               <summary className="button" aria-label="More options">
                 ⋯
               </summary>
@@ -481,16 +489,34 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
                     References ({bibliography.refs.length})
                   </button>
                 )}
-                {canRedo &&
-                  (confirmRedo ? (
-                    <button type="button" className="danger" onClick={() => void redo()}>
-                      Rewrite them all (uses API credit)
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmRedo(true)}>
-                      Rewrite summaries…
-                    </button>
-                  ))}
+                {canRedo && (
+                  <>
+                    <div className="menu-levels" role="group" aria-label="Notes written for">
+                      <span className="muted">Written for</span>
+                      {(Object.keys(LEVELS) as Level[]).map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className="chip"
+                          title={LEVELS[key].about}
+                          aria-pressed={key === (pendingLevel ?? level)}
+                          onClick={() => setPendingLevel(key === level ? null : key)}
+                        >
+                          {LEVELS[key].name}
+                        </button>
+                      ))}
+                    </div>
+                    {pendingLevel ? (
+                      <button type="button" className="danger" onClick={() => void redo(pendingLevel)}>
+                        {pendingLevel === level ? 'Rewrite them all' : `Rewrite for ${LEVELS[pendingLevel].name.toLowerCase()} readers`} (uses API credit)
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => setPendingLevel(level)}>
+                        Rewrite summaries…
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             </details>
           </>

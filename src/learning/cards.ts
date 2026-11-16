@@ -2,6 +2,7 @@
 import { supabase } from '../lib/supabase'
 import type { PdfDocument } from '../pdf/pdfjs'
 import { invokeClaude } from '../summaries/invoke'
+import type { Level } from '../summaries/level'
 import type { Brief } from '../summaries/slide'
 import { paperText } from '../summaries/summarise'
 import { type Grade, localDay, review, type Schedule, streak } from './schedule'
@@ -46,9 +47,10 @@ export async function listDueCards(): Promise<Card[]> {
 }
 
 /** Has Claude write a paper's questions, and saves them. */
-export async function createCards(doc: PdfDocument, paperId: string, brief: Brief): Promise<Card[]> {
+export async function createCards(doc: PdfDocument, paperId: string, brief: Brief, level: Level): Promise<Card[]> {
   const { questions } = await invokeClaude<{ questions: Omit<Card, 'id' | 'paper_id' | keyof Schedule>[] }>('quiz', {
     brief,
+    level,
     text: await paperText(doc),
   })
   const rows = questions.map(({ kind, prompt, options, correct, answer, points, page }) => ({

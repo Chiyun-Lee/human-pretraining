@@ -1,11 +1,12 @@
 // Answers a reader's question with Claude, using the caller's stored Anthropic key.
-//   POST { brief, context, quote, history, question, image?, note? } -> { answer, note }
+//   POST { brief, level?, context, quote, history, question, image?, note? } -> { answer, note }
 // `quote` is empty for a question about the whole paper. `note` is the summary
 // note over the selected passage; the reply's `note` is its new contents if Claude changed it.
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 import { fail, withAnthropicKey } from "../_shared/anthropic.ts";
 import { readBrief } from "../_shared/brief.ts";
+import { readLevel } from "../_shared/level.ts";
 import { answerQuestion, type Note, type Turn } from "./claude.ts";
 
 const MAX_TURNS = 30;
@@ -48,6 +49,6 @@ export default {
     if (body?.image !== undefined && !image) return fail(400, "invalid_request");
     if (!brief || !history || !question || !context) return fail(400, "invalid_request");
 
-    return withAnthropicKey(ctx, (key) => answerQuestion(key, { brief, context, quote, image, note: readNote(body?.note), history, question }));
+    return withAnthropicKey(ctx, (key) => answerQuestion(key, { brief, level: readLevel(body.level), context, quote, image, note: readNote(body?.note), history, question }));
   }),
 };

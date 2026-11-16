@@ -1,9 +1,10 @@
 // Summarises a batch of text blocks with Claude, using the caller's stored
-// Anthropic key.  POST { brief, blocks, todo? } -> { regions }
+// Anthropic key.  POST { brief, level, blocks, todo? } -> { regions }
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 import { fail, withAnthropicKey } from "../_shared/anthropic.ts";
 import { readBrief } from "../_shared/brief.ts";
+import { readLevel } from "../_shared/level.ts";
 import { type InputBlock, summariseBlocks } from "./claude.ts";
 
 const MAX_BLOCKS = 400;
@@ -32,6 +33,6 @@ export default {
     const known = new Set(blocks.map((block) => block.id));
     const todo = Array.isArray(body?.todo) && body.todo.every((id: unknown) => typeof id === "string") ? (body.todo as string[]).filter((id) => known.has(id)) : [];
 
-    return withAnthropicKey(ctx, async (key) => ({ regions: await summariseBlocks(key, brief, blocks, todo) }));
+    return withAnthropicKey(ctx, async (key) => ({ regions: await summariseBlocks(key, brief, readLevel(body.level), blocks, todo) }));
   }),
 };

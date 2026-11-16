@@ -7,6 +7,7 @@ import type { Box } from '../pdf/figures'
 import { pageTextBoxes, type PdfDocument } from '../pdf/pdfjs'
 import { ClaudeError, invokeClaude } from './invoke'
 import type { PaperMeta, Reference } from '../library/bibliography'
+import { type Level, levelOf } from './level'
 import { type Bibliography, type Brief, isBrief } from './slide'
 import { readSlide, type Slide } from './slideShape'
 import { referenceBlocks, referenceRegions } from './references'
@@ -17,6 +18,8 @@ export interface PaperSummaries {
   regions: Region[]
   slide: Slide | null
   brief: Brief | null
+  /** Who the notes are (or will be) written for. */
+  level: Level
   bibliography: Bibliography
 }
 
@@ -24,7 +27,7 @@ const REGION_COLUMNS = 'id, show_original, page, x0, y0, x1, y1, kind, bullets, 
 
 export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
   const [paper, regions] = await Promise.all([
-    supabase.from('papers').select('summarised_pages, slide, brief, doi, meta, refs').eq('id', paperId).single(),
+    supabase.from('papers').select('summarised_pages, slide, brief, level, doi, meta, refs').eq('id', paperId).single(),
     supabase.from('regions').select(REGION_COLUMNS).eq('paper_id', paperId),
   ])
   if (paper.error) throw paper.error
@@ -34,6 +37,7 @@ export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
     regions: regions.data as Region[],
     slide: readSlide(paper.data.slide),
     brief: isBrief(paper.data.brief) ? paper.data.brief : null,
+    level: levelOf(paper.data.level),
     bibliography: {
       doi: paper.data.doi as string | null,
       meta: paper.data.meta as PaperMeta | null,
@@ -42,16 +46,16 @@ export async function fetchSummaries(paperId: string): Promise<PaperSummaries> {
   }
 }
 
-/** Discards a paper's summaries and slide so they are written again. */
-export async function resetSummaries(paperId: string): Promise<void> {
+/** Discards a paper's summaries and slide so they are written again, for the given reader. */
+export async function resetSummaries(paperId: string, level: Level): Promise<void> {
   const cleared = await supabase.from('regions').delete().eq('paper_id', paperId)
   if (cleared.error) throw cleared.error
-  const { error } = await supabase.from('papers').update({ summarised_pages: [], slide: null, brief: null }).eq('id', paperId)
+  const { error } = await supabase.from('papers').update({ summarised_pages: [], slide: null, brief: null, level }).eq('id', paperId)
   if (error) throw error
 }
 
 /** `todo`: on a second pass, the only text blocks that still need a region. */
-async function requestGroups(brief: Brief, blocks: PageBlock[], todo?: string[]): Promise<SummaryGroup[]> {
+async function requestGroups(brief: Brief, level: Level, blocks: PageBlock[], todo?: string[]): Promise<SummaryGroup[]> {
   const payload = blocks.map((block) => ({
     id: block.id,
     kind: block.kind === 'paragraph' ? 'text' : 'other',
@@ -59,7 +63,7 @@ async function requestGroups(brief: Brief, blocks: PageBlock[], todo?: string[])
     // Non-prose blocks are only there for orientation.
     text: block.kind === 'paragraph' ? block.text : block.text.slice(0, 200),
   }))
-  return (await invokeClaude<{ regions: SummaryGroup[] }>('summarise', { brief, blocks: payload, todo })).regions
+  return (await invokeClaude<{ regions: SummaryGroup[] }>('summarise', { brief, level, blocks: payload, todo })).regions
 }
 
 const MAX_BATCH_CHARS = 9000
@@ -103,6 +107,7 @@ export async function summarisePaper(
   doc: PdfDocument,
   paperId: string,
   brief: Brief,
+  level: Level,
   donePages: number[],
   onRegions: (pages: number[], regions: Region[]) => void,
   signal: AbortSignal,
@@ -140,13 +145,13 @@ export async function summarisePaper(
     const sent = toSend(batch.blocks)
     const missed = () => uncovered(sent, used)
 
-    if (sent.some((block) => block.kind === 'paragraph')) regions.push(...buildRegions(await requestGroups(brief, sent), batch.blocks, used, pictures).regions)
+    if (sent.some((block) => block.kind === 'paragraph')) regions.push(...buildRegions(await requestGroups(brief, level, sent), batch.blocks, used, pictures).regions)
 
     // One more request for any paragraphs that were skipped or whose group could not be drawn, with only their pages.
     const todo = missed()
     if (todo.length > 0 && !signal.aborted) {
       const retried = sent.filter((block) => todo.some((left) => left.page === block.page))
-      const retry = await requestGroups(brief, retried, todo.map((block) => block.id))
+      const retry = await requestGroups(brief, level, retried, todo.map((block) => block.id))
       regions.push(...buildRegions(retry, batch.blocks, used, pictures).regions)
       const left = missed().length
       if (left > 0) console.info(`Pages ${batch.pages.join(', ')}: ${left} paragraph(s) left as original text`)
