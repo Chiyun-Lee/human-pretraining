@@ -1,22 +1,17 @@
 import { useState } from 'react'
 import { ClaudeError } from '../summaries/invoke'
-import { answerCard, type Card, deleteCard, GRADES, judge, saveGuess, type Verdict } from './cards'
+import { answerCard, type Card, deleteCard, GRADES, judge, type Verdict } from './cards'
 import type { Grade } from './schedule'
 
 interface Props {
   title: string
   cards: Card[]
-  /** Guesses before reading: nothing is marked or scheduled, and the answers are not shown. */
-  predict?: boolean
-  /** Shown in the page rather than over it. */
-  inline?: boolean
   onChanged?: (card: Card) => void
   onRemoved?: (id: string) => void
   onClose: () => void
 }
 
 const KIND: Record<Card['kind'], string> = {
-  predict: 'The main idea',
   recall: 'Recall',
   explain: 'Explain',
   apply: 'Apply it',
@@ -26,12 +21,11 @@ const KIND: Record<Card['kind'], string> = {
 type Outcome =
   | { state: 'answering' }
   | { state: 'checking' }
-  | { state: 'guessed' }
   /** `verdict` is missing when Claude could not judge and the reader marks their own answer. */
   | { state: 'marked'; grade?: Grade; verdict?: Verdict; problem?: string }
 
 /** Asks a set of cards one at a time; a card that was missed comes round once more at the end. */
-export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onClose }: Props) {
+export function Quiz({ title, cards, onChanged, onRemoved, onClose }: Props) {
   const [queue, setQueue] = useState(cards)
   const [position, setPosition] = useState(0)
   const [outcome, setOutcome] = useState<Outcome>({ state: 'answering' })
@@ -42,23 +36,20 @@ export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onCl
   const [scored, setScored] = useState<Set<string>>(new Set())
 
   const card = queue[position]
-  const shell = inline ? 'quiz quiz-inline' : 'quiz'
 
   if (!card) {
     return (
-      <section className={shell} role="dialog" aria-label={title}>
+      <section className="quiz" role="dialog" aria-label={title}>
         <div className="quiz-card">
-          <h2>{cards.length === 0 ? 'Nothing to review right now' : predict ? 'Guesses in' : `${right} of ${cards.length} right`}</h2>
+          <h2>{cards.length === 0 ? 'Nothing to review right now' : `${right} of ${cards.length} right`}</h2>
           <p className="muted">
             {cards.length === 0
               ? 'Questions come back when you are about to forget them.'
-              : predict
-                ? 'Now read on and see how you did.'
-                : 'Each question returns just before you would forget it: sooner if you missed it, later if you knew it.'}
+              : 'Each question returns just before you would forget it: sooner if you missed it, later if you knew it.'}
           </p>
           <div className="row">
             <button type="button" className="button primary" onClick={onClose}>
-              {predict ? 'Start reading' : 'Done'}
+              Done
             </button>
           </div>
         </div>
@@ -84,14 +75,7 @@ export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onCl
   const pick = (index: number) => {
     if (outcome.state !== 'answering') return
     setPicked(index)
-    const given = card.options[index] ?? ''
-    if (predict) {
-      setOutcome({ state: 'guessed' })
-      void saveGuess(card, given)
-      onChanged?.({ ...card, last_response: given })
-    } else {
-      void record(index === card.correct ? 3 : 1, given)
-    }
+    void record(index === card.correct ? 3 : 1, card.options[index] ?? '')
   }
 
   const check = async () => {
@@ -132,15 +116,15 @@ export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onCl
   const grade = marked ? outcome.grade : undefined
 
   return (
-    <section className={shell} role="dialog" aria-label={title}>
+    <section className="quiz" role="dialog" aria-label={title}>
       <div className="quiz-card">
         <header>
-          <span className="quiz-kind">{predict ? 'Before you read: take a guess' : KIND[card.kind]}</span>
+          <span className="quiz-kind">{KIND[card.kind]}</span>
           <span className="muted">
             {Math.min(position + 1, queue.length)} / {queue.length}
           </span>
           <button type="button" className="button" onClick={onClose}>
-            {predict ? 'Skip' : 'Close'}
+            Close
           </button>
         </header>
         {card.papers?.title && <p className="muted quiz-paper">{card.papers.title}</p>}
@@ -174,10 +158,6 @@ export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onCl
             readOnly={outcome.state !== 'answering'}
             onChange={(event) => setResponse(event.target.value)}
           />
-        )}
-
-        {outcome.state === 'guessed' && (
-          <p className="quiz-feedback">Noted. {card.page ? `You will find out around page ${card.page}.` : 'You will find out as you read.'}</p>
         )}
 
         {marked && (
@@ -226,7 +206,7 @@ export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onCl
               </button>
             </>
           )}
-          {(outcome.state === 'guessed' || (marked && grade !== undefined)) && (
+          {marked && grade !== undefined && (
             <button type="button" className="button primary" autoFocus onClick={next}>
               {position + 1 < queue.length ? 'Next' : 'Finish'}
             </button>
@@ -247,11 +227,9 @@ export function Quiz({ title, cards, predict, inline, onChanged, onRemoved, onCl
               I was right
             </button>
           )}
-          {!predict && (
-            <button type="button" className="quiz-remove" onClick={() => void remove()}>
-              Remove this question
-            </button>
-          )}
+          <button type="button" className="quiz-remove" onClick={() => void remove()}>
+            Remove this question
+          </button>
         </div>
       </div>
     </section>

@@ -3,7 +3,7 @@ import { fetchCrossref, type PaperMeta, type Reference } from '../library/biblio
 import type { PdfDocument } from '../pdf/pdfjs'
 import { invokeClaude } from './invoke'
 import type { Slide } from './slideShape'
-import { readPageBlocks } from './summarise'
+import { readPageBlocks, readProse } from './summarise'
 
 /** An independent reading of the whole paper that every page's summaries are written against. */
 export interface Brief {
@@ -59,13 +59,8 @@ export async function readPaper(
   name: string,
   knownDoi: string | null,
 ): Promise<{ brief: Brief; slide: Slide; bibliography: Bibliography }> {
-  let text = ''
-  let front = ''
-  for (let pageNumber = 1; pageNumber <= doc.numPages && text.length < MAX_CHARS; pageNumber++) {
-    const blocks = await readPageBlocks(doc, pageNumber)
-    if (pageNumber === 1) front = blocks.map((b) => b.text).join('\n').slice(0, 4000)
-    text += blocks.filter((b) => b.kind === 'paragraph').map((b) => b.text).join('\n\n') + '\n\n'
-  }
+  const text = (await readProse(doc)).join('\n\n')
+  const front = (await readPageBlocks(doc, 1)).map((b) => b.text).join('\n').slice(0, 4000)
 
   const result = await invokeClaude<{ meta: PrintedMeta; brief: Brief; slide: Slide }>('slide', { name, text: text.slice(0, MAX_CHARS), front })
 

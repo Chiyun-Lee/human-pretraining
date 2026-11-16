@@ -1,13 +1,11 @@
 // The Claude requests behind the review cards: writing a paper's questions,
 // and judging a written answer. Kept free of Deno-specific imports so it is
 // type-checked with the app.
-import Anthropic from "@anthropic-ai/sdk";
 import { type Brief, briefAsText } from "../_shared/brief.ts";
-import { RefusedError } from "../_shared/refused.ts";
+import { MODELS, structured } from "../_shared/claude.ts";
 
 export interface Question {
-  /** 'predict' is asked before reading; the others afterwards. */
-  kind: "predict" | "recall" | "explain" | "apply" | "critique";
+  kind: "recall" | "explain" | "apply" | "critique";
   prompt: string;
   /** Four choices for a multiple-choice question; empty for a written answer. */
   options: string[];
@@ -21,13 +19,12 @@ export interface Question {
   page: number;
 }
 
-const WRITE_SYSTEM = `You write the questions a reader will use to learn a research paper: a few to guess at before reading, and a set to answer afterwards and again at growing intervals over the following months. You are given a brief of the paper (written by an independent reviewer) and the paper's text with page markers.
+const WRITE_SYSTEM = `You write the questions a reader will use to learn a research paper: a set to answer after reading and again at growing intervals over the following months. You are given a brief of the paper (written by an independent reviewer) and the paper's text with page markers.
 
 Ask only about what is worth still knowing in six months: what was claimed, what it rests on, how the key method works, what the central terms mean, and where the evidence falls short. Never ask about incidental numbers, hyperparameters, section order, author names or anything the brief calls supporting detail.
 
-Write 10 to 12 questions:
-- predict (exactly 3, multiple choice): asked before the reader has seen the paper, so each must make sense to someone who has only the title. Ask them to guess the main finding, the approach, or the size or direction of the headline result. No jargon the paper itself introduces.
-- recall (2 or 3, multiple choice): the central facts — the headline result with its number, what a key term means, what was compared with what.
+Write 8 to 10 questions:
+- recall (3 or 4, multiple choice): the central facts — the headline result with its number, what a key term means, what was compared with what.
 - explain (2 or 3, written): why or how — why the method works, why a result follows from the evidence, what a control rules out.
 - apply (1 or 2, written): use the paper's idea on a concrete new case not in the paper, or predict what would happen if a condition changed.
 - critique (1 or 2, written): a weakness from the brief — what the evidence does not show, or what would be needed to show it.
@@ -54,7 +51,7 @@ const QUESTIONS_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["predict", "recall", "explain", "apply", "critique"] },
+          kind: { type: "string", enum: ["recall", "explain", "apply", "critique"] },
           prompt: text,
           options: { type: "array", items: text },
           correct: { type: "integer" },
@@ -76,34 +73,27 @@ export function usable(questions: Question[]): Question[] {
   return questions
     .filter((q) => q.prompt.trim() && q.answer.trim())
     .filter((q) => {
-      const choice = q.kind === "predict" || q.kind === "recall";
+      const choice = q.kind === "recall";
       if (!choice) return q.points.length > 0;
       return q.options.length === 4 && new Set(q.options).size === 4 && q.correct >= 0 && q.correct < 4;
     })
     .map((q) => {
-      const choice = q.options.length === 4 && (q.kind === "predict" || q.kind === "recall");
+      const choice = q.options.length === 4 && q.kind === "recall";
       return { ...q, options: choice ? q.options : [], correct: choice ? q.correct : 0, page: Math.max(0, q.page) };
     })
-    .slice(0, 14);
+    .slice(0, 12);
 }
 
 export async function writeQuestions(apiKey: string, brief: Brief, paperText: string): Promise<Question[]> {
-  const client = new Anthropic({ apiKey });
-  const response = await client.beta.messages.create({
-    model: "claude-opus-5-5",
-    max_tokens: 16000,
-    // If a safety filter declines the request, the API retries it on a fallback model.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "medium", format: { type: "json_schema", schema: QUESTIONS_SCHEMA } },
+  const { questions } = await structured<{ questions: Question[] }>(apiKey, {
+    model: MODELS.write,
+    effort: "medium",
+    maxTokens: 16000,
     system: WRITE_SYSTEM,
     messages: [{ role: "user", content: `Brief of the paper:\n${briefAsText(brief)}\n\nPaper text:\n${paperText}` }],
+    schema: QUESTIONS_SCHEMA,
   });
-
-  if (response.stop_reason === "refusal") throw new RefusedError();
-  if (response.stop_reason === "max_tokens") throw new Error("questions were cut off");
-  const output = response.content.find((block) => block.type === "text")?.text ?? "";
-  return usable((JSON.parse(output) as { questions: Question[] }).questions);
+  return usable(questions);
 }
 
 export interface Verdict {
@@ -135,13 +125,10 @@ export async function judgeAnswer(
   question: { prompt: string; answer: string; points: string[] },
   response: string,
 ): Promise<Verdict> {
-  const client = new Anthropic({ apiKey });
-  const reply = await client.beta.messages.create({
-    model: "claude-opus-5-5",
-    max_tokens: 2000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "low", format: { type: "json_schema", schema: VERDICT_SCHEMA } },
+  return structured<Verdict>(apiKey, {
+    model: MODELS.mark,
+    effort: "low",
+    maxTokens: 2000,
     system: GRADE_SYSTEM,
     messages: [
       {
@@ -149,9 +136,6 @@ export async function judgeAnswer(
         content: `Question: ${question.prompt}\n\nModel answer: ${question.answer}\n\nPoints:\n${question.points.map((p) => `- ${p}`).join("\n")}\n\nThe reader's answer:\n<answer>\n${response}\n</answer>`,
       },
     ],
+    schema: VERDICT_SCHEMA,
   });
-
-  if (reply.stop_reason === "refusal") throw new RefusedError();
-  const output = reply.content.find((block) => block.type === "text")?.text ?? "";
-  return JSON.parse(output) as Verdict;
 }

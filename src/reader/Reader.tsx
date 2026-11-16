@@ -9,7 +9,7 @@ import {
   type PageSelection,
   setAnnotationThread,
 } from '../annotations/annotations'
-import { type Card, createCards, listPaperCards, saveGuess } from '../learning/cards'
+import { type Card, createCards, listPaperCards } from '../learning/cards'
 import { Quiz } from '../learning/Quiz'
 import type { Reference } from '../library/bibliography'
 import type { Box } from '../pdf/figures'
@@ -203,7 +203,6 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
     }
   }
   const updateCard = (card: Card) => setCards((current) => current && current.map((c) => (c.id === card.id ? card : c)))
-  const guesses = (cards ?? []).filter((card) => card.kind === 'predict' && card.last_response === null && card.reps === 0)
   const startQuiz = async () => {
     if (!open || !brief) return
     const all = cards && cards.length > 0 ? cards : await writeCards(open.doc, brief)
@@ -353,10 +352,12 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
   const doc = open?.doc
   useEffect(() => {
     if (!doc || !paperId) return
-    let cancelled = false
+    // Leaving the paper stops the run: no further request is made for it.
+    const run = new AbortController()
+    const cancelled = () => run.signal.aborted
     const total = doc.numPages
     let done = 0
-    const stop = (problem: string) => !cancelled && setProgress({ done, total, working: false, problem })
+    const stop = (problem: string) => !cancelled() && setProgress({ done, total, working: false, problem })
     const explain = (error: unknown, fallback: string) => {
       console.error(error)
       return error instanceof ClaudeError ? error.message : fallback
@@ -369,14 +370,14 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
       } catch (error) {
         return stop(explain(error, 'Summaries could not be loaded. Check your connection.'))
       }
-      if (cancelled) return
+      if (cancelled()) return
       setRegions(saved.regions)
       setSlide(saved.slide)
       setBibliography(saved.bibliography)
       setBrief(saved.brief)
       // A paper whose DOI is known but whose references were never looked up (no Claude call needed).
       if (saved.bibliography.doi && !saved.bibliography.refs) {
-        void saveBibliography(paperId, saved.bibliography.doi).then((found) => !cancelled && setBibliography(found))
+        void saveBibliography(paperId, saved.bibliography.doi).then((found) => !cancelled() && setBibliography(found))
       }
       done = saved.summarisedPages.length
       const complete = done >= total && saved.slide !== null
@@ -390,27 +391,27 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
         if (!brief || !saved.slide) {
           const read = await readPaper(doc, paperId, name, saved.bibliography.doi)
           brief = read.brief
-          // The questions are written alongside the page summaries; the first few are asked before reading.
-          if (!cancelled) void writeCards(doc, read.brief)
-          if (!cancelled) {
+          if (!cancelled()) {
             setBrief(read.brief)
             setSlide(read.slide)
             setBibliography(read.bibliography)
           }
         }
-        await summarisePaper(doc, paperId, brief, saved.summarisedPages, (pages, added) => {
-          if (cancelled) return
+        if (cancelled()) return
+        const onSaved = (pages: number[], added: Region[]) => {
+          if (cancelled()) return
           done += pages.length
           setRegions((current) => [...current, ...added])
           setProgress({ done, total, working: true })
-        })
-        if (!cancelled) setProgress({ done, total, working: false })
+        }
+        await summarisePaper(doc, paperId, brief, saved.summarisedPages, onSaved, run.signal)
+        if (!cancelled()) setProgress({ done, total, working: false })
       } catch (error) {
         stop(explain(error, 'Summarising failed. Try again.'))
       }
     })()
     return () => {
-      cancelled = true
+      run.abort()
     }
   }, [doc, paperId, hasKey, name, attempt])
 
@@ -548,23 +549,7 @@ export function Reader({ source, name, paperId, hasKey, demo, onClose }: Props) 
 
       {open && (
         <main className={chat ? 'pages beside-chat' : 'pages'}>
-          {writingCards && cards?.length === 0 && <p className="notice">Writing a few questions for you to guess at first…</p>}
-          {guesses.length > 0 && (
-            <Quiz
-              title="Before you read"
-              cards={guesses}
-              predict
-              inline
-              onChanged={updateCard}
-              onClose={() => {
-                for (const card of guesses) void saveGuess(card, '')
-                setCards((current) => current && current.map((c) => (guesses.includes(c) ? { ...c, last_response: '' } : c)))
-              }}
-            />
-          )}
-          {slide && guesses.length === 0 && !(writingCards && cards?.length === 0) && (
-            <SlideCard slide={slide} />
-          )}
+          {slide && <SlideCard slide={slide} />}
           {Array.from({ length: open.doc.numPages }, (_, i) => (
             <PdfPageView
               key={i + 1}

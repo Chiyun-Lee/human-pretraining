@@ -1,9 +1,8 @@
 // The Claude request that reads a whole paper once, producing the brief that
 // page summaries are written against and the one-slide flow diagram.
 // Kept free of Deno-specific imports so it is type-checked with the app.
-import Anthropic from "@anthropic-ai/sdk";
 import { type Brief, BRIEF_SCHEMA } from "../_shared/brief.ts";
-import { RefusedError } from "../_shared/refused.ts";
+import { MODELS, structured } from "../_shared/claude.ts";
 
 export interface Slide {
   /** The paper's real title, as printed. */
@@ -106,24 +105,13 @@ export async function makeSlide(
   paperText: string,
   front: string,
 ): Promise<{ meta: PrintedMeta; brief: Brief; slide: Slide }> {
-  const client = new Anthropic({ apiKey });
-  const response = await client.beta.messages.create({
-    model: "claude-opus-5-5",
-    max_tokens: 16000,
-    // If a safety filter declines the request, the API retries it on a fallback model.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
+  const { meta, brief, slide } = await structured<{ meta: PrintedMeta; brief: Brief; slide: Slide }>(apiKey, {
+    model: MODELS.read,
+    effort: "medium",
+    maxTokens: 16000,
     system: SYSTEM,
-    messages: [
-      { role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nPaper text:\n${paperText}` },
-    ],
+    messages: [{ role: "user", content: `File name or title: ${name}\n\nFront matter (first page as printed):\n${front}\n\nPaper text:\n${paperText}` }],
+    schema: OUTPUT_SCHEMA,
   });
-
-  if (response.stop_reason === "refusal") throw new RefusedError();
-  if (response.stop_reason === "max_tokens") throw new Error("slide response was cut off");
-
-  const output = response.content.find((block) => block.type === "text")?.text ?? "";
-  const { meta, brief, slide } = JSON.parse(output) as { meta: PrintedMeta; brief: Brief; slide: Slide };
   return { meta, brief, slide: { ...slide, steps: slide.steps.slice(0, 5), branches: slide.branches.slice(0, 4) } };
 }

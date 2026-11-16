@@ -1,8 +1,7 @@
 // The Claude requests behind the codebase viewer: mapping a repository from
 // its file list and documentation, and writing the notes over one file.
 // Kept free of Deno-specific imports so it is type-checked with the app.
-import Anthropic from "@anthropic-ai/sdk";
-import { RefusedError } from "../_shared/refused.ts";
+import { cached, MODELS, structured } from "../_shared/claude.ts";
 
 /** An overview of a repository, written once and given to every later request about it. */
 export interface CodeMap {
@@ -103,33 +102,17 @@ const MAP_SCHEMA = {
   additionalProperties: false,
 };
 
-async function structured<T>(apiKey: string, effort: "low" | "medium", system: string, schema: unknown, user: string): Promise<T> {
-  const client = new Anthropic({ apiKey });
-  const response = await client.beta.messages.create({
-    model: "claude-opus-5-5",
-    max_tokens: 16000,
-    // If a safety filter declines the request, the API retries it on a fallback model.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort, format: { type: "json_schema", schema: schema as Record<string, unknown> } },
-    system,
-    messages: [{ role: "user", content: user }],
-  });
-  if (response.stop_reason === "refusal") throw new RefusedError();
-  if (response.stop_reason === "max_tokens") throw new Error("response was cut off");
-  return JSON.parse(response.content.find((block) => block.type === "text")?.text ?? "") as T;
-}
-
 export async function mapRepository(apiKey: string, name: string, files: ListedFile[], docs: { path: string; text: string }[]): Promise<CodeMap> {
   const listing = files.map((file) => `${file.path}\t${file.size}`).join("\n");
   const documents = docs.map((doc) => `=== ${doc.path}\n${doc.text}`).join("\n\n");
-  const map = await structured<CodeMap>(
-    apiKey,
-    "medium",
-    MAP_SYSTEM,
-    MAP_SCHEMA,
-    `Repository: ${name}\n\nFiles (path, bytes):\n${listing}\n\nDocumentation and manifests:\n${documents || "(none)"}`,
-  );
+  const map = await structured<CodeMap>(apiKey, {
+    model: MODELS.read,
+    effort: "medium",
+    maxTokens: 16000,
+    system: MAP_SYSTEM,
+    messages: [{ role: "user", content: `Repository: ${name}\n\nFiles (path, bytes):\n${listing}\n\nDocumentation and manifests:\n${documents || "(none)"}` }],
+    schema: MAP_SCHEMA,
+  });
   // Notes on paths that do not exist would point nowhere.
   const known = new Set(files.map((file) => file.path));
   const isFolder = (path: string) => files.some((file) => file.path.startsWith(path.replace(/\/$/, "") + "/"));
@@ -208,12 +191,14 @@ export function tidySections(sections: Section[], lineCount: number): Section[] 
 export async function annotateFile(apiKey: string, background: string, path: string, code: string): Promise<Section[]> {
   const lines = code.split("\n");
   const numbered = lines.map((line, i) => `${i + 1}\t${line}`).join("\n");
-  const { sections } = await structured<{ sections: Section[] }>(
-    apiKey,
-    "low",
-    FILE_SYSTEM,
-    SECTIONS_SCHEMA,
-    `Map of the repository:\n${background}\n\nFile: ${path}\n\n${numbered}`,
-  );
+  const { sections } = await structured<{ sections: Section[] }>(apiKey, {
+    model: MODELS.write,
+    effort: "low",
+    maxTokens: 16000,
+    // The map is the same for every file of the repository, so it is cached after the first.
+    system: [{ type: "text", text: FILE_SYSTEM }, cached(`Map of the repository:\n${background}`)],
+    messages: [{ role: "user", content: `File: ${path}\n\n${numbered}` }],
+    schema: SECTIONS_SCHEMA,
+  });
   return tidySections(sections, lines.length);
 }

@@ -48,12 +48,12 @@ export interface SummaryGroup {
   caveat: string
 }
 
-type Box = Pick<Region, 'x0' | 'y0' | 'x1' | 'y1'>
+export type Box = Pick<Region, 'x0' | 'y0' | 'x1' | 'y1'>
 
-const intersects = (a: Box, b: Box, slack = 1) =>
+export const intersects = (a: Box, b: Box, slack = 1) =>
   a.x0 + slack < b.x1 && b.x0 + slack < a.x1 && a.y0 + slack < b.y1 && b.y0 + slack < a.y1
 
-const boxOf = (members: PageBlock[]): Box => ({
+export const boxOf = (members: PageBlock[]): Box => ({
   x0: Math.min(...members.map((m) => m.x0)),
   y0: Math.min(...members.map((m) => m.y0)),
   x1: Math.max(...members.map((m) => m.x1)),

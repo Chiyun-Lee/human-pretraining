@@ -959,12 +959,6 @@ body {
   background: rgb(233 235 238 / 96%);
 }
 
-.quiz-inline {
-  position: static;
-  padding: 0;
-  background: none;
-}
-
 .quiz-card {
   display: flex;
   flex-direction: column;
@@ -975,11 +969,6 @@ body {
   background: var(--paper);
   border-radius: 12px;
   box-shadow: 0 1px 3px rgb(16 24 40 / 15%);
-}
-
-.quiz-inline .quiz-card {
-  width: 100%;
-  margin-top: 0;
 }
 
 .quiz-card header {

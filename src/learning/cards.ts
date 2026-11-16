@@ -9,7 +9,7 @@ import { type Grade, localDay, review, type Schedule, streak } from './schedule'
 export interface Card extends Schedule {
   id: string
   paper_id: string
-  kind: 'predict' | 'recall' | 'explain' | 'apply' | 'critique'
+  kind: 'recall' | 'explain' | 'apply' | 'critique'
   prompt: string
   /** Four choices, or empty when the answer is written. */
   options: string[]
@@ -17,7 +17,7 @@ export interface Card extends Schedule {
   answer: string
   points: string[]
   page: number | null
-  /** What the reader last answered; null until they have been asked. */
+  /** What the reader last answered; null until they have answered it. */
   last_response: string | null
   /** Present when cards from several papers are listed together. */
   papers?: { title: string } | null
@@ -87,12 +87,6 @@ export async function answerCard(card: Card, grade: Grade, response: string): Pr
   const counted = await supabase.rpc('record_study', { p_day: localDay(), p_reviews: 1 })
   if (counted.error) console.error(counted.error)
   return { ...card, ...next }
-}
-
-/** Remembers a guess made before reading (or '' if it was skipped) without scheduling anything. */
-export async function saveGuess(card: Card, response: string): Promise<void> {
-  const { error } = await supabase.from('cards').update({ last_response: response }).eq('id', card.id)
-  if (error) console.error(error)
 }
 
 export async function deleteCard(id: string): Promise<void> {

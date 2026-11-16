@@ -9,6 +9,7 @@ import { ClaudeError, invokeClaude } from './invoke'
 import type { PaperMeta, Reference } from '../library/bibliography'
 import { type Bibliography, type Brief, isBrief } from './slide'
 import { readSlide, type Slide } from './slideShape'
+import { referenceBlocks, referenceRegions } from './references'
 import { buildRegions, type PageBlock, type Region, type Source, type SummaryGroup, uncovered } from './regions'
 
 export interface PaperSummaries {
@@ -76,9 +77,27 @@ export async function readPageBlocks(doc: PdfDocument, pageNumber: number): Prom
   return blocks.map((block) => ({ ...block, page: pageNumber, id: `p${pageNumber}b${block.index}` }))
 }
 
+/** Every page's blocks, and which of them belong to the reference list. */
+async function readPaperBlocks(doc: PdfDocument): Promise<{ pages: PageBlock[][]; references: Set<string> }> {
+  const pages: PageBlock[][] = []
+  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) pages.push(await readPageBlocks(doc, pageNumber))
+  return { pages, references: referenceBlocks(pages) }
+}
+
+/** The paper's body prose, page by page, without the reference list. */
+export async function readProse(doc: PdfDocument): Promise<string[]> {
+  const { pages, references } = await readPaperBlocks(doc)
+  return pages.map((blocks) =>
+    blocks
+      .filter((block) => block.kind === 'paragraph' && !references.has(block.id))
+      .map((block) => block.text)
+      .join('\n\n'),
+  )
+}
+
 /**
  * Summarises every page not yet done, against the paper's brief. Calls `onRegions` as each batch is
- * saved, so the reader fills in progressively.
+ * saved, so the reader fills in progressively. Once `signal` is aborted no further request is made.
  */
 export async function summarisePaper(
   doc: PdfDocument,
@@ -86,19 +105,23 @@ export async function summarisePaper(
   brief: Brief,
   donePages: number[],
   onRegions: (pages: number[], regions: Region[]) => void,
+  signal: AbortSignal,
 ): Promise<void> {
   const done = new Set(donePages)
   const pictures = new Map<string, Box>()
   for (const figure of await findFigures(doc)) if (figure.box) pictures.set(figure.captionBlockId, figure.box)
+  const { pages, references } = await readPaperBlocks(doc)
+  // The reference list is masked by rule; Claude is sent everything else.
+  const toSend = (blocks: PageBlock[]) => blocks.filter((block) => !references.has(block.id))
   const batches: Batch[] = []
   let current: Batch = { pages: [], blocks: [] }
   let currentChars = 0
 
-  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-    const blocks = await readPageBlocks(doc, pageNumber)
+  for (const [i, blocks] of pages.entries()) {
+    const pageNumber = i + 1
     if (done.has(pageNumber)) continue
 
-    const chars = blocks.reduce((sum, b) => sum + (b.kind === 'paragraph' ? b.text.length : 0), 0)
+    const chars = toSend(blocks).reduce((sum, b) => sum + (b.kind === 'paragraph' ? b.text.length : 0), 0)
     const full = current.pages.length >= MAX_BATCH_PAGES || currentChars + chars > MAX_BATCH_CHARS
     if (full && current.pages.length > 0) {
       batches.push(current)
@@ -113,35 +136,35 @@ export async function summarisePaper(
 
   const runBatch = async (batch: Batch) => {
     const used = new Set<string>()
-    const groups = batch.blocks.length > 0 ? await requestGroups(brief, batch.blocks) : []
-    const first = buildRegions(groups, batch.blocks, used, pictures)
-    const regions = first.regions
+    const regions = batch.pages.flatMap((page) => referenceRegions(batch.blocks.filter((block) => block.page === page), references))
+    const sent = toSend(batch.blocks)
+    const missed = () => uncovered(sent, used)
 
-    // One more request for any paragraphs that were skipped or whose group could not be drawn.
-    const missed = uncovered(batch.blocks, used)
-    if (missed.length > 0) {
-      const retry = await requestGroups(brief, batch.blocks, missed.map((block) => block.id))
-      const second = buildRegions(retry, batch.blocks, used, pictures)
-      regions.push(...second.regions)
-      const left = uncovered(batch.blocks, used).length
+    if (sent.some((block) => block.kind === 'paragraph')) regions.push(...buildRegions(await requestGroups(brief, sent), batch.blocks, used, pictures).regions)
+
+    // One more request for any paragraphs that were skipped or whose group could not be drawn, with only their pages.
+    const todo = missed()
+    if (todo.length > 0 && !signal.aborted) {
+      const retried = sent.filter((block) => todo.some((left) => left.page === block.page))
+      const retry = await requestGroups(brief, retried, todo.map((block) => block.id))
+      regions.push(...buildRegions(retry, batch.blocks, used, pictures).regions)
+      const left = missed().length
       if (left > 0) console.info(`Pages ${batch.pages.join(', ')}: ${left} paragraph(s) left as original text`)
     }
-    const { data: saved, error } = await supabase.rpc('save_page_summaries', {
+    // What comes back is what is stored (with ids). If another device saved these pages first, it is that version.
+    const { data: stored, error } = await supabase.rpc('save_page_summaries', {
       p_paper_id: paperId,
       p_pages: batch.pages,
       p_regions: regions,
     })
     if (error) throw new ClaudeError('Summaries could not be saved. Check your connection.')
-    // Read back what is stored (with ids). If another device saved these pages first, this is its version.
-    void saved
-    const stored = await supabase.from('regions').select(REGION_COLUMNS).eq('paper_id', paperId).in('page', batch.pages)
-    onRegions(batch.pages, stored.error ? regions : (stored.data as Region[]))
+    onRegions(batch.pages, stored as Region[])
   }
 
-  // A few batches at a time; the first failure stops the rest from starting.
+  // A few batches at a time; the first failure, or the reader leaving, stops the rest from starting.
   const queue = [...batches]
   const worker = async () => {
-    for (let batch = queue.shift(); batch; batch = queue.shift()) {
+    for (let batch = queue.shift(); batch && !signal.aborted; batch = queue.shift()) {
       try {
         await runBatch(batch)
       } catch (error) {
@@ -171,11 +194,6 @@ export async function saveRegionText(regionId: string, bullets: string[], caveat
 
 /** The prose of the whole paper, with a [page N] marker before each page. */
 export async function paperText(doc: PdfDocument, maxChars = 180_000): Promise<string> {
-  let text = ''
-  for (let pageNumber = 1; pageNumber <= doc.numPages && text.length < maxChars; pageNumber++) {
-    const blocks = await readPageBlocks(doc, pageNumber)
-    const prose = blocks.filter((block) => block.kind === 'paragraph').map((block) => block.text)
-    text += `[page ${pageNumber}]\n${prose.join('\n\n')}\n\n`
-  }
-  return text.slice(0, maxChars)
+  const prose = await readProse(doc)
+  return prose.map((text, i) => `[page ${i + 1}]\n${text}\n\n`).join('').slice(0, maxChars)
 }

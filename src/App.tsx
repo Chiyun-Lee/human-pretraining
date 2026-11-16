@@ -21,7 +21,7 @@ const demo = devParams?.has('demo') ? await import('./dev/fixture') : null
 
 export function App() {
   if (demo && devParams?.has('quiz')) {
-    return <Quiz title="Quiz" cards={demo.demoCards} inline={devParams.has('inline')} predict={devParams.has('inline')} onClose={() => {}} />
+    return <Quiz title="Quiz" cards={demo.demoCards} onClose={() => {}} />
   }
   if (demo && devParams?.has('code')) return <CodeViewer codebase={demo.demoCodebase} hasKey={false} demo={demo.demoSections} />
   if (devFile) {
