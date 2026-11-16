@@ -105,3 +105,17 @@ describe('buildRegions', () => {
     expect(uncovered(blocks, used).map((b) => b.id)).toEqual(['a', 'b', 'r'])
   })
 })
+
+describe('pieces in different columns', () => {
+  it('draws one box when an equation piece labelled as another column sits inside the paragraph', () => {
+    const wide = { column: 'full' as const, x0: 50, x1: 540 }
+    const page = [block('p1', 100, wide), block('frag', 145, { kind: 'other', column: 'right', x0: 400, x1: 540, y1: 160 }), block('p2', 150, wide)]
+    const { regions } = buildRegions([group(['p1', 'frag', 'p2'], 'One point.')], page)
+    expect(regions).toMatchObject([{ kind: 'summary', x0: 50, y0: 100, x1: 540, y1: 190, bullets: ['One point.'] }])
+  })
+
+  it('still points across when a paragraph really continues in the next column', () => {
+    const { regions } = buildRegions([group(['c', 'r'], 'One point.')], blocks)
+    expect(regions.map((region) => region.kind)).toEqual(['summary', 'detail'])
+  })
+})

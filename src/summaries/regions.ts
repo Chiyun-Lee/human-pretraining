@@ -105,6 +105,16 @@ export function buildRegions(
       parts.set(key, [...(parts.get(key) ?? []), member])
     }
     const boxes = [...parts.values()].map((part) => ({ part, box: boxOf(part) }))
+    // Pieces whose boxes overlap are not really in separate columns (an equation set off-centre inside a
+    // paragraph): they are one box, not a note with a pointer stuck on top of it.
+    for (let i = 0; i < boxes.length; i++) {
+      const j = boxes.findIndex((other, k) => k > i && intersects(boxes[i]!.box, other.box))
+      if (j < 0) continue
+      const part = [...boxes[i]!.part, ...boxes[j]!.part]
+      boxes.splice(j, 1)
+      boxes[i] = { part, box: boxOf(part) }
+      i = -1
+    }
     const main = boxes.reduce((a, b) => (area(b.box) > area(a.box) ? b : a))
 
     // No box may hide anything Claude did not mean to replace.
